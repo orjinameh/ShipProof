@@ -67,6 +67,7 @@ function decisionPanel(claim, integrity, inv, canAppeal, ev) {
       h("dt", null, "Record hash"), h("dd", { class: "mono" }, d.recordHash)),
     h("p", null, h("span", { class: "pill " + (integrity.recordIntact ? "good" : "bad") }, integrity.recordIntact ? "Record unaltered" : "Record altered"), " ",
       h("span", { class: "pill " + (integrity.evidenceUnchanged ? "good" : "warn") }, integrity.evidenceUnchanged ? "Evidence unchanged since decision" : "Readings changed since decision")),
+    h("p", null, h("a", { href: "/verify/" + claim.id, target: "_blank", rel: "noopener" }, "Open public verification page"), h("span", { class: "note" }, " Anyone with this link can check the decision. It shows no names or order details.")),
     canAppeal ? appealForm() : null, claim.status === "closed" ? null : closeForm());
 }
 

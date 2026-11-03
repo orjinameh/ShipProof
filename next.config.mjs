@@ -7,6 +7,7 @@ const nextConfig = {
         { source: "/", destination: "/recorder.html" },
         { source: "/parcel/:id", destination: "/recorder.html" },
         { source: "/capture", destination: "/capture.html" },
+        { source: "/verify/:id", destination: "/verify.html" },
         { source: "/login", destination: "/login.html" },
         { source: "/console", destination: "/console.html" },
         { source: "/claims/:id", destination: "/claim.html" },

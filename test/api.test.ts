@@ -264,6 +264,14 @@ test("full claim flow with the stand-in model: decide, integrity, late readings,
   assert.equal(view.integrity.recordIntact, true);
   assert.equal(view.integrity.evidenceUnchanged, true);
   assert.equal(view.canAppeal, true);
+  // public verification: no login, no personal details
+  const pub = await call(ctx, "GET", `/api/public/decisions/${claim.id}`);
+  assert.equal(pub.status, 200);
+  assert.equal(pub.json.integrity.recordIntact, true);
+  assert.equal(pub.json.recordHash, view.claim.decision.recordHash);
+  const txt = JSON.stringify(pub.json);
+  assert.ok(!txt.includes("Sam") && !txt.includes("ORD-1") && !txt.includes("Acme") && !txt.includes("crushed"));
+  assert.equal((await call(ctx, "GET", "/api/public/decisions/nope_nope")).status, 404);
   // a second investigation is refused
   assert.equal((await call(ctx, "POST", `/api/claims/${claim.id}/investigate`, {}, cookie)).status, 409);
 

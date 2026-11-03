@@ -167,6 +167,9 @@ export async function handleApi(req: Request, given?: ApiContext): Promise<Respo
       return json(200, { profiles: Object.entries(PROFILES).map(([name, p]) => ({ name, ...p })) });
     }
 
+    // ----- public: a decision anyone with the link can check (no login, no personal details)
+    if (a === "public" && b === "decisions" && c && method === "GET") return await publicDecision(ctx, c, Math.floor(ctx.now() / 1000));
+
     // ----- public: tags and their readings (checked by signature, not by login)
     if (a === "devices" && method === "POST") return await registerDevice(req, ctx);
     if (a === "readings" && method === "POST") {
@@ -445,6 +448,36 @@ async function listClaims(ctx: ApiContext, auth: Auth): Promise<Response> {
       status: c.status,
       outcome: c.decision?.verdict.outcome ?? null,
     })),
+  });
+}
+
+async function publicDecision(ctx: ApiContext, id: string, nowS: number): Promise<Response> {
+  void nowS;
+  const claim = ID_RE.test(id) ? await ctx.store.getClaim(id) : undefined;
+  const parcel = claim ? await ctx.store.getParcel(claim.parcelId) : undefined;
+  if (!claim || !parcel || !claim.decision) return fail(404, "not_found", "No decision at this address.");
+  const d = claim.decision;
+  const evidence = await evidenceFor(ctx, parcel);
+  // No claimant, statement, order reference or company: only what is needed to check the decision.
+  return json(200, {
+    claimId: claim.id,
+    status: claim.status,
+    handlingProfile: PROFILES[parcel.profile].label,
+    limits: limitsFor(parcel.profile, parcel.overrides),
+    verdict: d.verdict,
+    via: d.via,
+    model: d.model,
+    decidedAt: d.decidedAt,
+    appealUntil: d.appealUntil,
+    evidenceHash: d.evidenceHash,
+    recordHash: d.recordHash,
+    integrity: {
+      recordIntact: recordIsIntact(claim.id, claim.parcelId, d),
+      evidenceUnchanged: evidence ? evidence.evidenceHash === d.evidenceHash : false,
+    },
+    evidenceSummary: evidence
+      ? { readingCount: evidence.readingCount, coverage: evidence.coverage, peakG: evidence.peakG, events: evidence.events.length }
+      : null,
   });
 }
 

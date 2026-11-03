@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verify decision | ShipProof</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/shipproof.css"></head>
+<body><div class="page" id="root" style="max-width:720px"></div>
+<script type="module">
+import { h, fmtTime } from "/js/api.js";
+const root = document.getElementById("root");
+const id = location.pathname.split("/").filter(Boolean).pop();
+const titles = { supports_claim: "Evidence supports the claim", does_not_support_claim: "Evidence does not support the claim", inconclusive: "Evidence is inconclusive" };
+const actions = { approve_refund: "Approve refund", deny_refund: "Deny refund", request_more_info: "Request more information", manual_review: "Send to manual review" };
+const head = h("header", { class: "top" }, h("a", { class: "brand", href: "/" }, "Ship", h("span", null, "Proof")), h("span", { class: "pill" }, "Public verification"));
+try {
+  const res = await fetch("/api/public/decisions/" + encodeURIComponent(id), { cache: "no-store" });
+  const d = await res.json();
+  if (!res.ok) throw new Error(d.message || "Not found");
+  const v = d.verdict, e = d.evidenceSummary;
+  root.replaceChildren(head, h("div", { class: "stack" },
+    h("section", { class: "panel pad" }, h("div", { class: "verdict v-" + v.outcome }, h("h3", null, titles[v.outcome]), h("p", null, v.summary),
+      h("p", null, h("span", { class: "pill" }, "Confidence: " + v.confidence), " ", h("span", { class: "pill" }, "Recommended: " + actions[v.recommendedAction]))),
+      v.findings.length ? h("ul", null, v.findings.map((f) => h("li", null, f.text, f.ts ? h("span", { class: "note" }, " (" + fmtTime(f.ts) + ")") : null))) : null,
+      v.limits.length ? h("div", null, h("h2", null, "What the sensors can't show"), h("ul", null, v.limits.map((l) => h("li", null, l)))) : null),
+    h("section", { class: "panel pad" }, h("h2", null, "Checks"),
+      h("p", null, h("span", { class: "pill " + (d.integrity.recordIntact ? "good" : "bad") }, d.integrity.recordIntact ? "Record unaltered" : "Record altered"), " ",
+        h("span", { class: "pill " + (d.integrity.evidenceUnchanged ? "good" : "warn") }, d.integrity.evidenceUnchanged ? "Evidence unchanged since decision" : "Readings changed since decision")),
+      h("dl", { class: "kv" }, h("dt", null, "Profile"), h("dd", null, d.handlingProfile + " (impact limit " + d.limits.shockG + " g)"),
+        h("dt", null, "Decided by"), h("dd", null, d.via === "serv-reasoning" ? "SERV Reasoning (" + d.model + ")" : "Rules (no readings, no model call)"),
+        h("dt", null, "Decided"), h("dd", null, fmtTime(d.decidedAt)), h("dt", null, "Appeal until"), h("dd", null, fmtTime(d.appealUntil)),
+        e ? [h("dt", null, "Readings"), h("dd", null, e.readingCount + " (" + Math.round(e.coverage * 100) + "% coverage, " + e.events + " event(s))")] : null,
+        h("dt", null, "Evidence hash"), h("dd", { class: "mono" }, d.evidenceHash), h("dt", null, "Record hash"), h("dd", { class: "mono" }, d.recordHash)),
+      h("p", { class: "note" }, "Every reading behind this decision was signed by the tag's own key before it was stored. The hashes change if any reading or the decision record is altered."))));
+} catch (err) { root.replaceChildren(head, h("p", { class: "msg err" }, err.message)); }
+</script></body></html>
