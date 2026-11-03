@@ -1,6 +1,6 @@
 import {
   generateDeviceKey, publicKeyRaw, deviceIdFor, signReading, toMilliG, magnitudeG, isShock,
-  pickRepresentative, b64, SHOCK_HIGH_G,
+  pickRepresentative, b64, signText, SHOCK_HIGH_G,
 } from "/js/proto.js";
 import { loadDeviceKey, saveDeviceKey, saveReading, deleteReadings, loadOutbox } from "/js/idb.js";
 
@@ -197,9 +197,10 @@ async function flush() {
 // ---------- arm and stop ----------
 
 async function arm() {
-  const id = el.parcel.value.trim();
+  // The tag doesn't need to know the parcel: the company assigns it. The reference is only a label.
+  const id = el.parcel.value.trim() || "tag";
   if (!ID_RE.test(id)) {
-    say("Enter the parcel ID first, using letters, numbers, dashes or underscores.", true);
+    say("The reference can use letters, numbers, dashes or underscores.", true);
     el.parcel.focus();
     return;
   }
@@ -344,6 +345,31 @@ function drawScope() {
   if (S.armed) S.raf = requestAnimationFrame(drawScope);
 }
 
+// ---------- pairing ----------
+
+async function pairWithCompany(token) {
+  const box = $("pairBox");
+  box.hidden = false;
+  box.textContent = "Linking this phone to your company...";
+  try {
+    await register();
+    const signature = await signText(S.key, `pair|${token}|${S.deviceId}`);
+    const res = await fetch("/api/pair", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token, deviceId: S.deviceId, publicKey: S.pubB64, signature }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.message || "Pairing failed (" + res.status + ")");
+    box.classList.add("ok");
+    box.textContent = "Linked to " + body.org.name + ". You can arm the recorder now, or close this page and come back to it later.";
+    history.replaceState(null, "", "/capture"); // the one-time code shouldn't stay in the address bar
+  } catch (e) {
+    box.classList.add("bad");
+    box.textContent = e.message;
+  }
+}
+
 // ---------- start ----------
 
 (async function init() {
@@ -351,6 +377,7 @@ function drawScope() {
   let remembered = "";
   try { remembered = localStorage.getItem("shipproof.parcel") || ""; } catch { /* ignore */ }
   el.parcel.value = ID_RE.test(q || "") ? q : remembered;
+  const pairToken = new URLSearchParams(location.search).get("pair");
   el.arm.addEventListener("click", () => (S.armed ? stop() : arm()));
   drawScope();
   try {
@@ -361,6 +388,7 @@ function drawScope() {
     say("Signing isn't available in this browser, so recording is turned off. Use a current version of Safari or Chrome over HTTPS.", true);
     return;
   }
+  if (pairToken) await pairWithCompany(pairToken);
   // Readings left over from an earlier session go out first.
   flush();
 })();

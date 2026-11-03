@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const POLL_MS = 2000;
-const SHOCK_HIGH_G = 2.5;
+let SHOCK_HIGH_G = 2.5; // the parcel's own impact limit when opened from a claim or the console
 const GAP_SECONDS = 5; // a longer silence breaks the line instead of drawing across it
 
 const el = {
@@ -49,7 +49,8 @@ function ago(seconds) {
 async function poll() {
   if (!S.parcelId || document.hidden) return;
   try {
-    const res = await fetch("/api/readings?parcelId=" + encodeURIComponent(S.parcelId), { cache: "no-store" });
+    const res = await fetch(S.src || "/api/readings?parcelId=" + encodeURIComponent(S.parcelId), { cache: "no-store", credentials: "same-origin" });
+    if (res.status === 401) { location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search); return; }
     if (!res.ok) throw new Error("The server answered " + res.status);
     const body = await res.json();
     take(body.readings);
@@ -71,7 +72,12 @@ function take(readings) {
     }
   }
   S.readings = readings;
-  if (S.follow) S.idx = readings.length - 1;
+  if (!S.loaded && document.body.classList.contains("embed") && readings.length) {
+    // Opened inside a claim: start on the hardest hit, because that is what the claim is about.
+    let best = 0;
+    readings.forEach((r, i) => { if (gOf(r) > gOf(readings[best])) best = i; });
+    S.idx = best;
+  } else if (S.follow) S.idx = readings.length - 1;
   else S.idx = Math.min(S.idx, readings.length - 1);
   S.loaded = true;
   if (newShock && S.follow) hit();
@@ -164,7 +170,7 @@ function render() {
 
   // summary in plain sentences
   if (!S.parcelId) {
-    el.summary.textContent = "Nothing is open. Enter a parcel ID above, or start recording on a phone.";
+    el.summary.textContent = "Nothing is open. Choose a parcel above.";
   } else if (!n) {
     el.summary.textContent = S.error ? "Can't reach the server yet." : "No readings for this parcel yet.";
   } else {
@@ -248,9 +254,11 @@ function renderLedger() {
   el.empty.hidden = showList;
   if (showList) return;
   if (!S.parcelId) {
-    el.empty.textContent = "Open a parcel ID to see its readings.";
+    el.empty.textContent = "Choose a parcel to see its readings.";
   } else if (n > 0) {
     el.empty.textContent = "The device flagged no shocks for this parcel.";
+  } else if (S.src) {
+    el.empty.textContent = "The tag sent no readings during this parcel's delivery.";
   } else {
     const url = location.origin + "/capture?parcel=" + encodeURIComponent(S.parcelId);
     el.empty.innerHTML = "No readings yet. On a phone, open <a></a> and arm the recorder.";
@@ -465,8 +473,43 @@ el.scene.addEventListener("pointerup", () => { drag = null; });
 
 window.addEventListener("resize", drawChart);
 
-S.parcelId = parcelFromUrl();
+// Opened from the console or a claim: read one parcel's delivery from a same-origin API path.
+const qs = new URLSearchParams(location.search);
+const srcParam = qs.get("src");
+if (srcParam && /^\/api\/[A-Za-z0-9_\-\/]+$/.test(srcParam)) {
+  S.src = srcParam;
+  S.parcelId = (qs.get("title") || "Parcel").slice(0, 64);
+  const lim = Number(qs.get("limit"));
+  if (lim > 0 && lim < 20) SHOCK_HIGH_G = lim;
+  S.follow = qs.get("embed") ? false : S.follow;
+} else {
+  S.parcelId = parcelFromUrl();
+}
+if (qs.get("embed")) document.body.classList.add("embed");
 el.pid.value = S.parcelId || "";
+
+// No typing a parcel ID: pick from your parcels.
+(async function parcelPicker() {
+  if (S.src || qs.get("embed")) { el.form.hidden = true; return; }
+  try {
+    const res = await fetch("/api/parcels", { cache: "no-store", credentials: "same-origin" });
+    if (res.status === 401) { location.href = "/login?next=/replay"; return; }
+    const { parcels } = await res.json();
+    const list = parcels.filter((p) => p.dispatchedAt);
+    const sel = document.createElement("select");
+    sel.setAttribute("aria-label", "Parcel");
+    const first = document.createElement("option");
+    first.textContent = list.length ? "Choose a parcel..." : "No dispatched parcels yet";
+    first.value = ""; sel.append(first);
+    for (const p of list) { const o = document.createElement("option"); o.value = p.id; o.textContent = p.orderRef + " (" + p.status.replace("_", " ") + ")"; sel.append(o); }
+    sel.addEventListener("change", () => {
+      const p = list.find((x) => x.id === sel.value);
+      if (p) location.href = "/replay?src=" + encodeURIComponent("/api/parcels/" + p.id + "/readings") + "&title=" + encodeURIComponent(p.orderRef) + "&limit=" + p.limits.shockG;
+    });
+    el.form.replaceChildren(sel);
+    el.form.hidden = false;
+  } catch { el.form.hidden = true; }
+})();
 drawBarcode(S.parcelId || "shipproof");
 setOrbit();
 render();
@@ -474,3 +517,10 @@ requestAnimationFrame(frame);
 poll();
 setInterval(poll, POLL_MS);
 setInterval(() => { if (S.readings.length) render(); }, 10000); // keeps "last reading ... ago" honest
+
+// Inside a claim page: tell the parent how tall this page is, so the frame fits with no inner scrollbar.
+if (document.body.classList.contains("embed") && parent !== window) {
+  const send = () => parent.postMessage({ shipproofHeight: document.documentElement.scrollHeight }, location.origin);
+  new ResizeObserver(send).observe(document.body);
+  send();
+}

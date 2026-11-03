@@ -40,3 +40,15 @@ export function verifyReading(reading: Reading, publicKeyRawB64: string): boolea
     return false;
   }
 }
+
+/** True only if `sigB64` is a valid signature by this key over the UTF-8 text. */
+export function verifyText(text: string, sigB64: string, publicKeyRawB64: string): boolean {
+  try {
+    const key = publicKeyFromRaw(publicKeyRawB64);
+    const sig = Buffer.from(sigB64, "base64");
+    if (sig.length !== 64) return false;
+    return verify("sha256", Buffer.from(text, "utf8"), { key, dsaEncoding: "ieee-p1363" }, sig);
+  } catch {
+    return false;
+  }
+}

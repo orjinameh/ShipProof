@@ -1,6 +1,6 @@
 import {
   LoginLimiter, clearedCookie, hashPassword, makeSessionToken, newId, parseCookies, readSessionToken,
-  sessionCookie, verifyPassword, COOKIE_NAME,
+  sessionCookie, verifyPassword, COOKIE_NAME, makePairToken, readPairToken,
 } from "./auth.ts";
 import { AFTER_DELIVERY_SECONDS, buildEvidence, type Evidence } from "./evidence.ts";
 import { InvestigatorError, investigate, recordIsIntact, servConfigFromEnv, type ServConfig } from "./investigator.ts";
@@ -8,7 +8,7 @@ import { MAX_BATCH, ingestReadings } from "./ingest.ts";
 import { PROFILES, isProfileName, limitsFor, parseOverrides } from "./profiles.ts";
 import { getStore, type Store } from "./store.ts";
 import type { Claim, Org, Parcel, Resolution, User } from "./types.ts";
-import { publicKeyFromRaw } from "./verify.ts";
+import { publicKeyFromRaw, verifyText } from "./verify.ts";
 
 /**
  * The whole HTTP API as one function from Request to Response. The Next.js route
@@ -170,6 +170,9 @@ export async function handleApi(req: Request, given?: ApiContext): Promise<Respo
     // ----- public: a decision anyone with the link can check (no login, no personal details)
     if (a === "public" && b === "decisions" && c && method === "GET") return await publicDecision(ctx, c, Math.floor(ctx.now() / 1000));
 
+    // ----- public: a phone or tag pairs itself to a company by proving it holds its key
+    if (a === "pair" && method === "POST") return await pairTag(req, ctx);
+
     // ----- public: tags and their readings (checked by signature, not by login)
     if (a === "devices" && method === "POST") return await registerDevice(req, ctx);
     if (a === "readings" && method === "POST") {
@@ -195,6 +198,12 @@ export async function handleApi(req: Request, given?: ApiContext): Promise<Respo
       const mine = new Set((await ctx.store.listTags(auth.org.id)).map((t) => t.deviceId));
       const readings = (await ctx.store.listReadings(label)).filter((r) => mine.has(r.deviceId));
       return json(200, { parcelId: label, count: readings.length, readings });
+    }
+
+    if (a === "org" && b === "pairing" && method === "POST") {
+      const r = await readBody(req);
+      if ("res" in r) return r.res;
+      return json(200, makePairToken(auth.org.id, nowS, ctx.secret));
     }
 
     if (a === "org" && b === "tags") {
@@ -307,6 +316,35 @@ async function registerDevice(req: Request, ctx: ApiContext): Promise<Response> 
   }
   await ctx.store.putDevice({ deviceId, publicKey, registeredAt: Math.floor(ctx.now() / 1000) });
   return json(201, { deviceId, status: "registered" });
+}
+
+async function pairTag(req: Request, ctx: ApiContext): Promise<Response> {
+  const r = await readBody(req);
+  if ("res" in r) return r.res;
+  const b = r.body as Body;
+  const nowS = Math.floor(ctx.now() / 1000);
+  const t = readPairToken(b.token, nowS, ctx.secret);
+  if (!t) return fail(400, "bad_pair_code", "This pairing code has expired. Show a new one in the console and scan it again.");
+  const org = await ctx.store.getOrg(t.oid);
+  if (!org) return fail(400, "bad_pair_code", "This pairing code is no longer valid.");
+  const deviceId = typeof b.deviceId === "string" && ID_RE.test(b.deviceId) ? b.deviceId : undefined;
+  if (!deviceId) return fail(400, "bad_device_id", "Invalid deviceId.");
+  if (typeof b.publicKey !== "string" || typeof b.signature !== "string") return fail(400, "bad_pair_proof", "Send the public key and its signature.");
+  try {
+    publicKeyFromRaw(b.publicKey);
+  } catch (e) {
+    return fail(400, "bad_public_key", (e as Error).message);
+  }
+  // The device signs the code with its own key, proving it holds that key.
+  if (!verifyText(`pair|${b.token as string}|${deviceId}`, b.signature, b.publicKey)) return fail(400, "bad_pair_proof", "The signature doesn't match this device's key.");
+  const label = b.label === undefined || b.label === "" ? deviceId : str(b.label, 1, 60);
+  if (!label) return fail(400, "bad_label", "Use a label of up to 60 characters.");
+  const existing = await ctx.store.getDevice(deviceId);
+  if (existing && existing.publicKey !== b.publicKey) return fail(409, "key_mismatch", "This device ID is registered with a different key.");
+  if (!existing) await ctx.store.putDevice({ deviceId, publicKey: b.publicKey, registeredAt: nowS });
+  const result = await ctx.store.claimTag({ deviceId, orgId: org.id, label, addedAt: nowS });
+  if (result === "owned") return fail(409, "tag_taken", "Another company already holds this tag.");
+  return json(200, { org: { name: org.name }, tag: { deviceId, label } });
 }
 
 async function listTags(ctx: ApiContext, auth: Auth, nowS: number): Promise<Response> {

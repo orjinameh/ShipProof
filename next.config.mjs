@@ -4,7 +4,7 @@ const nextConfig = {
   async rewrites() {
     return {
       beforeFiles: [
-        { source: "/", destination: "/console.html" },
+        { source: "/", destination: "/landing.html" },
         { source: "/replay", destination: "/recorder.html" },
         { source: "/parcel/:id", destination: "/recorder.html" },
         { source: "/capture", destination: "/capture.html" },

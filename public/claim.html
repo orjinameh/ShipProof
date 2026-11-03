@@ -5,29 +5,47 @@
 <link rel="stylesheet" href="/shipproof.css"></head>
 <body><div class="page" id="root"></div>
 <script type="module">
-import { api, h, fmtTime, say, header } from "/js/api.js";
+import { api, h, fmtTime, say } from "/js/api.js";
+import { mountShell } from "/js/shell.js";
 const root = document.getElementById("root");
 const id = location.pathname.split("/").filter(Boolean).pop();
 const titles = { supports_claim: "Evidence supports the claim", does_not_support_claim: "Evidence does not support the claim", inconclusive: "Evidence is inconclusive" };
 const actions = { approve_refund: "Approve refund", deny_refund: "Deny refund", request_more_info: "Request more information", manual_review: "Send to manual review" };
 const kindText = { impact: "Impact", free_fall: "Free fall", tilt: "Tilted past limit" };
 const unit = { impact: "g", free_fall: "g", tilt: "°" };
-let me;
+let me, main;
+const stampText = { supports_claim: "Damage supported", does_not_support_claim: "Not supported", inconclusive: "Inconclusive" };
 
 async function load() {
   const [m, v] = await Promise.all([api("GET", "/auth/me"), api("GET", "/claims/" + encodeURIComponent(id))]);
   me = m;
   const { claim, parcel, evidence: ev, integrity, investigator, canAppeal } = v;
-  root.replaceChildren(header("Console", m.org.name), h("div", { class: "stack" },
-    h("a", { href: "/console" }, "← Back to console"),
+  if (!main) main = mountShell(root, { org: m.org.name, active: "claims" });
+  main.replaceChildren(h("div", { class: "stack" },
+    h("a", { href: "/console#claims" }, "← All claims"),
     h("section", { class: "panel pad" }, h("h2", null, "Claim"),
       h("dl", { class: "kv" }, h("dt", null, "Order"), h("dd", null, parcel.orderRef), h("dt", null, "Profile"), h("dd", null, parcel.profileLabel + " (impact limit " + parcel.limits.shockG + " g)"),
         h("dt", null, "Claimant"), h("dd", null, claim.claimant), h("dt", null, "Filed"), h("dd", null, fmtTime(claim.filedAt)), h("dt", null, "Status"), h("dd", null, claim.status)),
       h("p", null, h("em", null, "“" + claim.statement + "”")), h("p", { class: "note" }, "The statement is the claimant's word. The investigator treats it as unverified and decides from the sensor evidence.")),
+    replayPanel(ev, parcel),
     evidencePanel(ev, parcel),
     decisionPanel(claim, integrity, investigator, canAppeal, ev),
     claim.appeal ? h("section", { class: "panel pad" }, h("h2", null, "Appeal"), h("p", null, claim.appeal.note), h("p", { class: "note" }, "By " + claim.appeal.by + ", " + fmtTime(claim.appeal.at))) : null,
     claim.resolution ? h("section", { class: "panel pad" }, h("h2", null, "Resolution"), h("p", null, claim.resolution.outcome.replace("_", " ")), claim.resolution.note ? h("p", null, claim.resolution.note) : null) : null));
+}
+
+addEventListener("message", (e) => {
+  if (e.origin !== location.origin || !e.data || typeof e.data.shipproofHeight !== "number") return;
+  const f = document.querySelector(".replay-frame iframe");
+  if (f && e.source === f.contentWindow) f.style.height = Math.min(Math.max(e.data.shipproofHeight, 400), 3000) + "px";
+});
+
+function replayPanel(ev, parcel) {
+  if (!ev || !ev.readingCount) return null;
+  const src = "/replay?embed=1&src=" + encodeURIComponent("/api/parcels/" + parcel.id + "/readings") + "&title=" + encodeURIComponent(parcel.orderRef) + "&limit=" + parcel.limits.shockG;
+  return h("section", { class: "panel replay-frame" }, h("h2", { class: "pad-h" }, "Replay the delivery"),
+    h("p", { class: "note pad-h" }, "Drag the slider to move through the trip. The parcel tilts as it did in transit. It starts on the hardest hit."),
+    h("iframe", { src, title: "Replay of the delivery", loading: "lazy" }));
 }
 
 function evidencePanel(ev, parcel) {
@@ -58,6 +76,7 @@ function decisionPanel(claim, integrity, inv, canAppeal, ev) {
   }
   const v = d.verdict;
   return h("section", { class: "panel pad" }, h("h2", null, "Decision"),
+    h("div", { class: "stamp s-" + v.outcome, "aria-hidden": "true" }, stampText[v.outcome]),
     h("div", { class: "verdict v-" + v.outcome }, h("h3", null, titles[v.outcome]), h("p", null, v.summary),
       h("p", null, h("span", { class: "pill" }, "Confidence: " + v.confidence), " ", h("span", { class: "pill" }, "Recommended: " + actions[v.recommendedAction]))),
     v.findings.length ? h("ul", null, v.findings.map((f) => h("li", null, f.text, f.ts ? h("span", { class: "note" }, " (" + fmtTime(f.ts) + ")") : null))) : null,
@@ -82,5 +101,5 @@ function closeForm() {
   return h("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); try { await api("POST", "/claims/" + id + "/close", { resolution: sel.value, note: note.value }); await load(); } catch (err) { say(msg, err.message, true); } } },
     h("h2", null, "Your decision"), h("div", { class: "row" }, sel, note), h("button", { class: "btn sm", type: "submit" }, "Close claim"), msg);
 }
-load().catch((e) => { if (e.message !== "Signed out") root.replaceChildren(h("p", { class: "msg err" }, e.message)); });
+load().catch((e) => { if (e.message !== "Signed out") (main || root).replaceChildren(h("p", { class: "msg err" }, e.message)); });
 </script></body></html>

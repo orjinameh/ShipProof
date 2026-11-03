@@ -14,9 +14,11 @@
     <a class="brand" href="/">Ship<span>Proof</span></a>
 
     <div class="field">
-      <label for="parcel">Parcel ID</label>
-      <input id="parcel" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="64" placeholder="PKG-123">
+      <label for="parcel">Reference (optional)</label>
+      <input id="parcel" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="64" placeholder="Leave empty">
     </div>
+
+    <p class="pairbox" id="pairBox" role="status" hidden></p>
 
     <section class="panel scope" aria-label="Live motion">
       <canvas id="scope"></canvas>

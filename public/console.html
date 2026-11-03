@@ -3,66 +3,126 @@
 <title>Console | ShipProof</title>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/shipproof.css"></head>
-<body><div class="page" id="root"></div>
+<body><div id="root"></div>
 <script type="module">
-import { api, h, fmtTime, say, header } from "/js/api.js";
+import { api, h, fmtTime, say } from "/js/api.js";
+import { mountShell, openPairing, toast } from "/js/shell.js";
+
 const root = document.getElementById("root");
-let profiles = [];
-const statusPill = (s) => h("span", { class: "pill " + (s === "delivered" ? "good" : s === "in_transit" ? "warn" : "") }, s.replace("_", " "));
+let main, orgName, profiles = [], D = null;
 const outcomeLabel = { supports_claim: ["Supports claim", "bad"], does_not_support_claim: ["Does not support", "good"], inconclusive: ["Inconclusive", "warn"] };
+const statusPill = (s) => h("span", { class: "pill " + (s === "delivered" ? "good" : s === "in_transit" ? "warn" : "") }, s.replace("_", " "));
+const view = () => (["tags", "parcels", "claims"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview");
 
 async function load() {
   const [me, tags, parcels, claims] = await Promise.all([api("GET", "/auth/me"), api("GET", "/org/tags"), api("GET", "/parcels"), api("GET", "/claims")]);
   if (!profiles.length) profiles = (await api("GET", "/profiles")).profiles;
-  root.replaceChildren(header("Console", me.org.name),
-    h("div", { class: "stack" },
-      h("div", { class: "two" }, tagsPanel(tags.tags), parcelForm(tags.tags)),
-      parcelsPanel(parcels.parcels), claimsPanel(claims.claims)));
+  D = { tags: tags.tags, parcels: parcels.parcels, claims: claims.claims };
+  if (!main) { orgName = me.org.name; main = mountShell(root, { org: orgName, active: "overview" }); }
+  draw();
 }
 
-function tagsPanel(tags) {
+function draw() {
+  const v = view();
+  document.querySelectorAll(".side nav a[data-key]").forEach((a) => {
+    const on = a.dataset.key === v;
+    if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  });
+  const body = v === "tags" ? tagsView() : v === "parcels" ? parcelsView() : v === "claims" ? claimsView() : overview();
+  const paint = () => main.replaceChildren(body);
+  document.startViewTransition ? document.startViewTransition(paint) : paint();
+}
+
+// ---------- the next step, from real state ----------
+
+function steps() {
+  const { tags, parcels, claims } = D;
+  const hasTag = tags.length > 0, hasParcel = parcels.length > 0;
+  const moving = parcels.some((p) => p.status === "in_transit"), delivered = parcels.some((p) => p.status === "delivered");
+  const hasClaim = claims.length > 0, decided = claims.some((c) => c.outcome), closed = claims.some((c) => c.status === "closed");
+  return [
+    { t: "Pair a tag", d: "Scan a QR code with a phone, or add a hardware tag by its ID.", done: hasTag, go: () => openPairing(), cta: "Pair a phone" },
+    { t: "Create a parcel", d: "Pick the tag and a handling profile that matches what you ship.", done: hasParcel, go: () => (location.hash = "parcels"), cta: "New parcel" },
+    { t: "Dispatch it", d: "Readings count as evidence only from this moment.", done: moving || delivered, go: () => (location.hash = "parcels"), cta: "Open parcels" },
+    { t: "Mark it delivered", d: "This closes the custody window.", done: delivered, go: () => (location.hash = "parcels"), cta: "Open parcels" },
+    { t: "File a claim", d: "Record what the buyer says happened.", done: hasClaim, go: () => (location.hash = "parcels"), cta: "Open parcels" },
+    { t: "Run the investigator", d: "SERV Reasoning reads the sensor evidence and recommends an action.", done: decided, go: () => (location.hash = "claims"), cta: "Open claims" },
+    { t: "Make your decision", d: "The recommendation is advice. You decide and the record is sealed.", done: closed, go: () => (location.hash = "claims"), cta: "Open claims" },
+  ];
+}
+
+function overview() {
+  const s = steps(), cur = s.findIndex((x) => !x.done);
+  const stat = (n, label) => h("div", { class: "stat" }, h("strong", null, n), h("span", null, label));
+  const active = D.claims.filter((c) => c.status !== "closed").length;
+  return h("div", { class: "stack" },
+    h("h1", { class: "title" }, "Welcome, " + orgName),
+    cur === -1 ? h("section", { class: "panel pad hero" }, h("h2", null, "You've been through the whole flow"), h("p", null, "Every claim now has sensor evidence, a verdict and a sealed record."))
+      : h("section", { class: "panel pad hero" }, h("h2", null, "Next step"), h("p", { class: "big" }, s[cur].t), h("p", null, s[cur].d), h("button", { class: "btn", onclick: s[cur].go }, s[cur].cta)),
+    h("div", { class: "stats" }, stat(D.tags.length, "tags"), stat(D.parcels.length, "parcels"), stat(active, "open claims")),
+    h("section", { class: "panel pad" }, h("h2", null, "The path"), h("ol", { class: "path" }, s.map((x, i) => h("li", { class: x.done ? "done" : i === cur ? "now" : "" }, h("span", { class: "dot" }, x.done ? "✓" : i + 1), h("div", null, h("b", null, x.t), h("small", null, x.d))))))
+  );
+}
+
+// ---------- tags ----------
+
+function tagsView() {
   const msg = h("p", { class: "msg", role: "status" });
-  const id = h("input", { placeholder: "Tag device ID", maxlength: 64, spellcheck: "false" });
+  const id = h("input", { placeholder: "Hardware tag device ID", maxlength: 64, spellcheck: "false" });
   const label = h("input", { placeholder: "Label (optional)", maxlength: 60 });
-  return h("section", { class: "panel pad" }, h("h2", null, "Tags"),
-    tags.length ? h("table", { class: "tbl" }, h("tr", null, h("th", null, "Label"), h("th", null, "Device"), h("th", null, "Last reading")),
-      tags.map((t) => h("tr", null, h("td", null, t.label), h("td", { class: "mono" }, t.deviceId), h("td", null, t.lastReadingTs ? fmtTime(t.lastReadingTs) : "none yet"))))
-      : h("p", { class: "empty" }, "No tags yet. Add the device ID printed on a tag."),
-    h("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); try { await api("POST", "/org/tags", { deviceId: id.value.trim(), label: label.value.trim() }); await load(); } catch (err) { say(msg, err.message, true); } } },
-      h("div", { class: "row" }, id, label), h("button", { class: "btn sm", type: "submit" }, "Add tag"), msg));
+  return h("div", { class: "stack" }, h("div", { class: "row between" }, h("h1", { class: "title" }, "Tags"), h("button", { class: "btn", onclick: () => openPairing() }, "Pair a phone")),
+    h("section", { class: "panel pad" },
+      D.tags.length ? h("table", { class: "tbl" }, h("tr", null, h("th", null, "Label"), h("th", null, "Device"), h("th", null, "Last reading")),
+        D.tags.map((t) => h("tr", null, h("td", null, t.label), h("td", { class: "mono" }, t.deviceId), h("td", null, t.lastReadingTs ? fmtTime(t.lastReadingTs) : "none yet"))))
+        : h("p", { class: "empty" }, "No tags yet. Pair a phone, or add a hardware tag below.")),
+    h("section", { class: "panel pad" }, h("h2", null, "Add a hardware tag"),
+      h("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); try { await api("POST", "/org/tags", { deviceId: id.value.trim(), label: label.value.trim() }); toast("Tag added", "ok"); await load(); } catch (err) { say(msg, err.message, true); } } },
+        h("div", { class: "row" }, id, label), h("button", { class: "btn sm", type: "submit" }, "Add tag"), msg)));
 }
 
-function parcelForm(tags) {
+// ---------- parcels ----------
+
+function parcelsView() {
   const msg = h("p", { class: "msg", role: "status" });
   const ref = h("input", { placeholder: "Order reference", maxlength: 80, required: true });
-  const tag = h("select", null, tags.map((t) => h("option", { value: t.deviceId }, t.label + " (" + t.deviceId + ")")));
+  const tag = h("select", null, D.tags.map((t) => h("option", { value: t.deviceId }, t.label)));
   const prof = h("select", null, profiles.map((p) => h("option", { value: p.name }, p.label + " - " + p.description)));
-  return h("section", { class: "panel pad" }, h("h2", null, "New parcel"),
-    tags.length ? h("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); try { await api("POST", "/parcels", { orderRef: ref.value.trim(), deviceId: tag.value, profile: prof.value }); await load(); } catch (err) { say(msg, err.message, true); } } },
-      h("div", null, h("label", null, "Order reference"), ref), h("div", null, h("label", null, "Tag inside the parcel"), tag),
-      h("div", null, h("label", null, "Handling profile"), prof),
-      h("button", { class: "btn sm", type: "submit" }, "Create parcel"), msg)
-      : h("p", { class: "empty" }, "Add a tag first."));
+  const act = (p, step, text) => h("button", { class: "btn sm", onclick: async (e) => { e.target.disabled = true; try { await api("POST", "/parcels/" + p.id + "/" + step, {}); toast(step === "dispatch" ? "Dispatched. Readings now count." : "Delivered. The window is closed.", "ok"); await load(); } catch (err) { toast(err.message, "bad"); e.target.disabled = false; } } }, text);
+  const claimBtn = (p) => h("button", { class: "btn sm", onclick: () => claimDialog(p) }, "File claim");
+  const replay = (p) => h("a", { class: "btn sm ghost", href: "/replay?src=" + encodeURIComponent("/api/parcels/" + p.id + "/readings") + "&title=" + encodeURIComponent(p.orderRef) + "&limit=" + p.limits.shockG }, "Replay");
+  return h("div", { class: "stack" }, h("h1", { class: "title" }, "Parcels"),
+    h("section", { class: "panel pad" }, h("h2", null, "New parcel"),
+      D.tags.length ? h("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); try { await api("POST", "/parcels", { orderRef: ref.value.trim(), deviceId: tag.value, profile: prof.value }); toast("Parcel created", "ok"); await load(); } catch (err) { say(msg, err.message, true); } } },
+        h("div", { class: "two" }, h("div", null, h("label", null, "Order reference"), ref), h("div", null, h("label", null, "Tag inside the parcel"), tag)),
+        h("div", null, h("label", null, "Handling profile"), prof), h("button", { class: "btn sm", type: "submit" }, "Create parcel"), msg)
+        : h("div", null, h("p", { class: "empty" }, "You need a tag first."), h("button", { class: "btn sm", onclick: () => openPairing() }, "Pair a phone"))),
+    h("section", { class: "panel pad" }, h("h2", null, "All parcels"),
+      D.parcels.length ? h("table", { class: "tbl" }, h("tr", null, h("th", null, "Order"), h("th", null, "Profile"), h("th", null, "Status"), h("th", null, "")),
+        D.parcels.map((p) => h("tr", null, h("td", null, p.orderRef), h("td", null, p.profileLabel, " ", h("span", { class: "mono" }, p.limits.shockG + " g")), h("td", null, statusPill(p.status)),
+          h("td", { class: "right" }, p.dispatchedAt ? replay(p) : null, " ", p.status === "created" ? act(p, "dispatch", "Dispatch") : p.status === "in_transit" ? act(p, "delivered", "Mark delivered") : claimBtn(p)))))
+        : h("p", { class: "empty" }, "No parcels yet.")));
 }
 
-function parcelsPanel(parcels) {
-  const act = (p, step, text) => h("button", { class: "btn sm", onclick: async (e) => { e.target.disabled = true; try { await api("POST", "/parcels/" + p.id + "/" + step, {}); await load(); } catch (err) { alert(err.message); e.target.disabled = false; } } }, text);
-  const claimBtn = (p) => h("button", { class: "btn sm", onclick: async () => {
-    const claimant = prompt("Who is making the claim?"); if (!claimant) return;
-    const statement = prompt("What do they say happened?"); if (!statement) return;
-    try { const r = await api("POST", "/parcels/" + p.id + "/claims", { claimant, statement }); location.href = "/claims/" + r.claim.id; } catch (err) { alert(err.message); } } }, "File claim");
-  return h("section", { class: "panel pad" }, h("h2", null, "Parcels"),
-    parcels.length ? h("table", { class: "tbl" }, h("tr", null, h("th", null, "Order"), h("th", null, "Profile"), h("th", null, "Status"), h("th", null, "")),
-      parcels.map((p) => h("tr", null, h("td", null, p.orderRef), h("td", null, p.profileLabel, " ", h("span", { class: "mono" }, p.limits.shockG + " g")), h("td", null, statusPill(p.status)),
-        h("td", null, p.status === "created" ? act(p, "dispatch", "Dispatch") : p.status === "in_transit" ? act(p, "delivered", "Mark delivered") : claimBtn(p)))))
-      : h("p", { class: "empty" }, "No parcels yet."));
+function claimDialog(p) {
+  const who = h("input", { placeholder: "Who is making the claim?", maxlength: 100, required: true });
+  const what = h("textarea", { placeholder: "What do they say happened?", maxlength: 2000, required: true });
+  const msg = h("p", { class: "msg", role: "status" });
+  const dlg = h("dialog", { class: "pairing" }, h("h2", null, "File a claim for " + p.orderRef),
+    h("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); try { const r = await api("POST", "/parcels/" + p.id + "/claims", { claimant: who.value, statement: what.value }); location.href = "/claims/" + r.claim.id; } catch (err) { say(msg, err.message, true); } } },
+      who, what, h("div", { class: "row" }, h("button", { class: "btn", type: "submit" }, "File claim"), h("button", { class: "btn ghost", type: "button", onclick: () => { dlg.close(); dlg.remove(); } }, "Cancel")), msg));
+  document.body.append(dlg); dlg.showModal(); who.focus();
 }
 
-function claimsPanel(claims) {
-  return h("section", { class: "panel pad" }, h("h2", null, "Claims"),
-    claims.length ? h("table", { class: "tbl" }, h("tr", null, h("th", null, "Order"), h("th", null, "Claimant"), h("th", null, "Filed"), h("th", null, "Status"), h("th", null, "Verdict")),
-      claims.map((c) => { const o = outcomeLabel[c.outcome]; return h("tr", null, h("td", null, h("a", { href: "/claims/" + c.id }, c.orderRef || c.parcelId)), h("td", null, c.claimant), h("td", null, fmtTime(c.filedAt)), h("td", null, h("span", { class: "pill" }, c.status)), h("td", null, o ? h("span", { class: "pill " + o[1] }, o[0]) : "-")); }))
-      : h("p", { class: "empty" }, "No claims yet."));
+// ---------- claims ----------
+
+function claimsView() {
+  return h("div", { class: "stack" }, h("h1", { class: "title" }, "Claims"),
+    h("section", { class: "panel pad" }, D.claims.length ? h("table", { class: "tbl" }, h("tr", null, h("th", null, "Order"), h("th", null, "Claimant"), h("th", null, "Filed"), h("th", null, "Status"), h("th", null, "Verdict")),
+      D.claims.map((c) => { const o = outcomeLabel[c.outcome]; return h("tr", { class: "click", onclick: () => (location.href = "/claims/" + c.id) }, h("td", null, h("a", { href: "/claims/" + c.id }, c.orderRef || c.parcelId)), h("td", null, c.claimant), h("td", null, fmtTime(c.filedAt)), h("td", null, h("span", { class: "pill" }, c.status)), h("td", null, o ? h("span", { class: "pill " + o[1] }, o[0]) : "-")); }))
+      : h("p", { class: "empty" }, "No claims yet. File one from a delivered parcel.")));
 }
+
+addEventListener("hashchange", () => D && draw());
+document.addEventListener("shipproof:refresh", () => load());
 load().catch((e) => { if (e.message !== "Signed out") root.replaceChildren(h("p", { class: "msg err" }, e.message)); });
 </script></body></html>

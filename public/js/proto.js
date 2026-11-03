@@ -79,3 +79,9 @@ export function pickRepresentative(samples) {
   }
   return best;
 }
+
+/** Signs plain text with the device key (used to prove possession when pairing). */
+export async function signText(privateKey, text) {
+  const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, privateKey, new TextEncoder().encode(text));
+  return b64(sig);
+}

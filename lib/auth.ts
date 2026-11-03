@@ -96,3 +96,30 @@ export class LoginLimiter {
     this.fails.delete(key);
   }
 }
+
+// ---------- pairing a tag to a company by QR code ----------
+
+export const PAIR_SECONDS = 10 * 60;
+
+/** A short-lived token a signed-in company shows as a QR code. It carries no user id, so it can't act as a session. */
+export function makePairToken(oid: string, nowSeconds: number, secret: string): { token: string; expiresAt: number } {
+  const expiresAt = nowSeconds + PAIR_SECONDS;
+  const payload = b64url(JSON.stringify({ kind: "pair", oid, exp: expiresAt }));
+  return { token: `${payload}.${mac("pair." + payload, secret)}`, expiresAt };
+}
+
+export function readPairToken(token: unknown, nowSeconds: number, secret: string): { oid: string } | undefined {
+  if (typeof token !== "string" || token.length > 400) return undefined;
+  const [payload, sig] = token.split(".");
+  if (!payload || !sig) return undefined;
+  const expected = Buffer.from(mac("pair." + payload, secret));
+  const given = Buffer.from(sig);
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return undefined;
+  try {
+    const s = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { kind?: string; oid?: string; exp?: number };
+    if (s.kind !== "pair" || typeof s.oid !== "string" || typeof s.exp !== "number") return undefined;
+    return s.exp > nowSeconds ? { oid: s.oid } : undefined;
+  } catch {
+    return undefined;
+  }
+}

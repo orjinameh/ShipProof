@@ -4,7 +4,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
-import { generateDeviceKey, publicKeyRaw, deviceIdFor, signReading, b64 } from "../public/js/proto.js";
+import { generateDeviceKey, publicKeyRaw, deviceIdFor, signReading, signText, b64 } from "../public/js/proto.js";
 import { handleApi, type ApiContext } from "../lib/api.ts";
 import { FileStore } from "../lib/store.ts";
 import { LoginLimiter } from "../lib/auth.ts";
@@ -342,4 +342,36 @@ test("a model error leaves the claim open and retryable", async () => {
   fail = false;
   assert.equal((await call(ctx, "POST", `/api/claims/${claim.id}/investigate`, {}, cookie)).status, 200);
   stub.close();
+});
+
+test("scan-to-pair: a phone proves it holds its key, then appears as the company's tag", async () => {
+  const { ctx, setNow } = setup();
+  const cookie = await signup(ctx);
+  assert.equal((await call(ctx, "POST", "/api/org/pairing", {})).status, 401);
+  const { token } = (await call(ctx, "POST", "/api/org/pairing", {}, cookie)).json;
+  const pair = await generateDeviceKey();
+  const raw = await publicKeyRaw(pair.publicKey);
+  const deviceId = await deviceIdFor(raw);
+  const body = async (tok: string, id = deviceId, key = pair.privateKey) =>
+    ({ token: tok, deviceId: id, publicKey: b64(raw), signature: await signText(key, `pair|${tok}|${id}`) });
+  // wrong key signs: refused
+  const other = await generateDeviceKey();
+  assert.equal((await call(ctx, "POST", "/api/pair", await body(token, deviceId, other.privateKey))).status, 400);
+  // forged token: refused
+  assert.equal((await call(ctx, "POST", "/api/pair", await body(token.slice(0, -2) + "xx"))).status, 400);
+  // a session cookie is not a pairing token
+  assert.equal((await call(ctx, "POST", "/api/pair", await body(cookie.split("=")[1]))).status, 400);
+  const ok = await call(ctx, "POST", "/api/pair", await body(token));
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  assert.equal(ok.json.org.name, "Acme");
+  const tags = (await call(ctx, "GET", "/api/org/tags", undefined, cookie)).json.tags;
+  assert.equal(tags.length, 1);
+  assert.equal(tags[0].deviceId, deviceId);
+  // another company cannot take it with its own code
+  const b = await signup(ctx, "b@beta.com", "Beta");
+  const t2 = (await call(ctx, "POST", "/api/org/pairing", {}, b)).json.token;
+  assert.equal((await call(ctx, "POST", "/api/pair", await body(t2))).status, 409);
+  // expired code
+  setNow(T0 + 10_000 + 11 * 60);
+  assert.equal((await call(ctx, "POST", "/api/pair", await body(token))).status, 400);
 });

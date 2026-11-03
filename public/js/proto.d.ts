@@ -29,3 +29,5 @@ export function toMilliG(ms2: number, flip: boolean): number;
 export function magnitudeG(ax: number, ay: number, az: number): number;
 export function isShock(g: number): boolean;
 export function pickRepresentative<T extends { ax: number; ay: number; az: number }>(samples: T[]): T;
+
+export function signText(privateKey: CryptoKey, text: string): Promise<string>;
