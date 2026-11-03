@@ -36,6 +36,6 @@ export function header(active, org) {
   const link = (href, label) => h("a", { href, ...(active === label ? { "aria-current": "page" } : {}) }, label);
   return h("header", { class: "top" },
     h("a", { class: "brand", href: "/console" }, "Ship", h("span", null, "Proof")),
-    h("nav", null, link("/console", "Console"), link("/", "Replay"), org ? h("span", { class: "pill" }, org) : null,
+    h("nav", null, link("/console", "Console"), link("/replay", "Replay"), org ? h("span", { class: "pill" }, org) : null,
       h("button", { class: "btn sm ghost", onclick: async () => { await api("POST", "/auth/logout", {}); location.href = "/login"; } }, "Sign out")));
 }
