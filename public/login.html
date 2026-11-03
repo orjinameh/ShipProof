@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in | ShipProof</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/shipproof.css"></head>
+<body><div class="page"><div class="auth-box panel pad">
+<a class="brand" href="/login">Ship<span>Proof</span></a>
+<p class="note">Settle damage claims with signed sensor evidence from the parcel itself.</p>
+<div class="tabs"><button class="btn sm" id="tIn" type="button">Sign in</button><button class="btn sm ghost" id="tUp" type="button">Create company account</button></div>
+<form class="form" id="f">
+<div id="coWrap" hidden><label for="co">Company name</label><input id="co" maxlength="80" autocomplete="organization"></div>
+<div><label for="em">Work email</label><input id="em" type="email" required autocomplete="email"></div>
+<div><label for="pw">Password</label><input id="pw" type="password" required minlength="8" autocomplete="current-password"></div>
+<button class="btn" id="go" type="submit">Sign in</button><p class="msg" id="msg" role="status"></p>
+</form></div></div>
+<script type="module">
+import { api, say } from "/js/api.js";
+let up = false;
+const $ = (id) => document.getElementById(id);
+function mode(u) { up = u; $("coWrap").hidden = !u; $("go").textContent = u ? "Create account" : "Sign in"; $("tIn").classList.toggle("ghost", u); $("tUp").classList.toggle("ghost", !u); $("pw").autocomplete = u ? "new-password" : "current-password"; say($("msg"), ""); }
+$("tIn").onclick = () => mode(false); $("tUp").onclick = () => mode(true);
+$("f").onsubmit = async (e) => {
+  e.preventDefault(); $("go").disabled = true; say($("msg"), "Working...");
+  try {
+    await api("POST", up ? "/auth/signup" : "/auth/login", { company: $("co").value, email: $("em").value, password: $("pw").value });
+    const next = new URLSearchParams(location.search).get("next");
+    location.href = next && next.startsWith("/") && !next.startsWith("//") ? next : "/console";
+  } catch (err) { say($("msg"), err.message, true); } finally { $("go").disabled = false; }
+};
+</script></body></html>

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Console | ShipProof</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/shipproof.css"></head>
+<body><div class="page" id="root"></div>
+<script type="module">
+import { api, h, fmtTime, say, header } from "/js/api.js";
+const root = document.getElementById("root");
+let profiles = [];
+const statusPill = (s) => h("span", { class: "pill " + (s === "delivered" ? "good" : s === "in_transit" ? "warn" : "") }, s.replace("_", " "));
+const outcomeLabel = { supports_claim: ["Supports claim", "bad"], does_not_support_claim: ["Does not support", "good"], inconclusive: ["Inconclusive", "warn"] };
+
+async function load() {
+  const [me, tags, parcels, claims] = await Promise.all([api("GET", "/auth/me"), api("GET", "/org/tags"), api("GET", "/parcels"), api("GET", "/claims")]);
+  if (!profiles.length) profiles = (await api("GET", "/profiles")).profiles;
+  root.replaceChildren(header("Console", me.org.name),
+    h("div", { class: "stack" },
+      h("div", { class: "two" }, tagsPanel(tags.tags), parcelForm(tags.tags)),
+      parcelsPanel(parcels.parcels), claimsPanel(claims.claims)));
+}
+
+function tagsPanel(tags) {
+  const msg = h("p", { class: "msg", role: "status" });
+  const id = h("input", { placeholder: "Tag device ID", maxlength: 64, spellcheck: "false" });
+  const label = h("input", { placeholder: "Label (optional)", maxlength: 60 });
+  return h("section", { class: "panel pad" }, h("h2", null, "Tags"),
+    tags.length ? h("table", { class: "tbl" }, h("tr", null, h("th", null, "Label"), h("th", null, "Device"), h("th", null, "Last reading")),
+      tags.map((t) => h("tr", null, h("td", null, t.label), h("td", { class: "mono" }, t.deviceId), h("td", null, t.lastReadingTs ? fmtTime(t.lastReadingTs) : "none yet"))))
+      : h("p", { class: "empty" }, "No tags yet. Add the device ID printed on a tag."),
+    h("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); try { await api("POST", "/org/tags", { deviceId: id.value.trim(), label: label.value.trim() }); await load(); } catch (err) { say(msg, err.message, true); } } },
+      h("div", { class: "row" }, id, label), h("button", { class: "btn sm", type: "submit" }, "Add tag"), msg));
+}
+
+function parcelForm(tags) {
+  const msg = h("p", { class: "msg", role: "status" });
+  const ref = h("input", { placeholder: "Order reference", maxlength: 80, required: true });
+  const tag = h("select", null, tags.map((t) => h("option", { value: t.deviceId }, t.label + " (" + t.deviceId + ")")));
+  const prof = h("select", null, profiles.map((p) => h("option", { value: p.name }, p.label + " - " + p.description)));
+  return h("section", { class: "panel pad" }, h("h2", null, "New parcel"),
+    tags.length ? h("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); try { await api("POST", "/parcels", { orderRef: ref.value.trim(), deviceId: tag.value, profile: prof.value }); await load(); } catch (err) { say(msg, err.message, true); } } },
+      h("div", null, h("label", null, "Order reference"), ref), h("div", null, h("label", null, "Tag inside the parcel"), tag),
+      h("div", null, h("label", null, "Handling profile"), prof),
+      h("button", { class: "btn sm", type: "submit" }, "Create parcel"), msg)
+      : h("p", { class: "empty" }, "Add a tag first."));
+}
+
+function parcelsPanel(parcels) {
+  const act = (p, step, text) => h("button", { class: "btn sm", onclick: async (e) => { e.target.disabled = true; try { await api("POST", "/parcels/" + p.id + "/" + step, {}); await load(); } catch (err) { alert(err.message); e.target.disabled = false; } } }, text);
+  const claimBtn = (p) => h("button", { class: "btn sm", onclick: async () => {
+    const claimant = prompt("Who is making the claim?"); if (!claimant) return;
+    const statement = prompt("What do they say happened?"); if (!statement) return;
+    try { const r = await api("POST", "/parcels/" + p.id + "/claims", { claimant, statement }); location.href = "/claims/" + r.claim.id; } catch (err) { alert(err.message); } } }, "File claim");
+  return h("section", { class: "panel pad" }, h("h2", null, "Parcels"),
+    parcels.length ? h("table", { class: "tbl" }, h("tr", null, h("th", null, "Order"), h("th", null, "Profile"), h("th", null, "Status"), h("th", null, "")),
+      parcels.map((p) => h("tr", null, h("td", null, p.orderRef), h("td", null, p.profileLabel, " ", h("span", { class: "mono" }, p.limits.shockG + " g")), h("td", null, statusPill(p.status)),
+        h("td", null, p.status === "created" ? act(p, "dispatch", "Dispatch") : p.status === "in_transit" ? act(p, "delivered", "Mark delivered") : claimBtn(p)))))
+      : h("p", { class: "empty" }, "No parcels yet."));
+}
+
+function claimsPanel(claims) {
+  return h("section", { class: "panel pad" }, h("h2", null, "Claims"),
+    claims.length ? h("table", { class: "tbl" }, h("tr", null, h("th", null, "Order"), h("th", null, "Claimant"), h("th", null, "Filed"), h("th", null, "Status"), h("th", null, "Verdict")),
+      claims.map((c) => { const o = outcomeLabel[c.outcome]; return h("tr", null, h("td", null, h("a", { href: "/claims/" + c.id }, c.orderRef || c.parcelId)), h("td", null, c.claimant), h("td", null, fmtTime(c.filedAt)), h("td", null, h("span", { class: "pill" }, c.status)), h("td", null, o ? h("span", { class: "pill " + o[1] }, o[0]) : "-")); }))
+      : h("p", { class: "empty" }, "No claims yet."));
+}
+load().catch((e) => { if (e.message !== "Signed out") root.replaceChildren(h("p", { class: "msg err" }, e.message)); });
+</script></body></html>
