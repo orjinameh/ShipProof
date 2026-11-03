@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Record a parcel | ShipProof</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/shipproof.css">
+</head>
+<body>
+  <main class="cap">
+    <a class="brand" href="/">Ship<span>Proof</span></a>
+
+    <div class="field">
+      <label for="parcel">Parcel ID</label>
+      <input id="parcel" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="64" placeholder="PKG-123">
+    </div>
+
+    <section class="panel scope" aria-label="Live motion">
+      <canvas id="scope"></canvas>
+      <div class="scope-read" aria-live="off"><span class="num" id="force">-</span><small>g right now</small></div>
+      <div class="scope-off" id="scopeOff">Not recording. Put the phone in the parcel, then arm the recorder.</div>
+    </section>
+
+    <button class="btn primary arm" id="arm" type="button">Arm recorder</button>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+
+    <section class="panel facts" aria-label="Recorder status">
+      <dl>
+        <dt>Motion</dt><dd id="fMotion">Waiting to start</dd>
+        <dt>Location</dt><dd id="fLoc">Not requested</dd>
+        <dt>Upload</dt><dd id="fUp">Nothing recorded yet</dd>
+        <dt>Shocks flagged</dt><dd id="fShock">0</dd>
+        <dt>Screen</dt><dd id="fWake">Not locked on</dd>
+        <dt>Device</dt><dd id="fDev">Creating key</dd>
+      </dl>
+      <p class="note" id="watch"></p>
+    </section>
+
+    <p class="note">Keep this page open with the screen on. iPhone pauses recording when the screen locks. Readings are signed on this phone with a key that never leaves it, and any readings that can't be sent are kept and sent when the connection returns.</p>
+  </main>
+  <script type="module" src="/js/capture.js"></script>
+</body>
+</html>

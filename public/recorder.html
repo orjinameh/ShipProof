@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parcel recorder | ShipProof</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/shipproof.css">
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <a class="brand" href="/">Ship<span>Proof</span></a>
+      <form id="open" autocomplete="off">
+        <div class="field">
+          <label for="pid">Parcel ID</label>
+          <input id="pid" maxlength="64" spellcheck="false" placeholder="PKG-123">
+        </div>
+        <button class="btn" type="submit">Open parcel</button>
+      </form>
+    </header>
+
+    <main class="grid">
+      <div class="col">
+        <section class="panel stage" id="stage" aria-label="Parcel replay">
+          <div class="scene" id="scene" role="img" aria-label="3D parcel, tilted to match the recorded orientation. Drag to turn it.">
+            <div class="jolt" id="jolt">
+              <div class="orbit" id="orbit">
+                <div class="tilt" id="tilt">
+                  <div class="face front">
+                    <div class="waybill">
+                      <div class="wb-id" id="wbId">No parcel</div>
+                      <div class="wb-sub" id="wbSub">Open a parcel ID to begin</div>
+                      <svg id="barcode" viewBox="0 0 120 22" preserveAspectRatio="none" aria-hidden="true"></svg>
+                    </div>
+                  </div>
+                  <div class="face back"></div>
+                  <div class="face right"></div>
+                  <div class="face left"></div>
+                  <div class="face top"></div>
+                  <div class="face bottom"></div>
+                </div>
+              </div>
+            </div>
+            <div class="rings" aria-hidden="true"></div>
+          </div>
+          <div class="readouts">
+            <div id="boxForce"><span class="num" id="rdForce">-</span><small>Force, in g</small></div>
+            <div><span class="num" id="rdTilt">-</span><small>Tilt from level</small></div>
+            <div><span class="num" id="rdTime">-</span><small>Recorded at</small></div>
+          </div>
+          <p class="summary" id="summary" aria-live="polite"></p>
+        </section>
+
+        <div class="panel route-panel">
+          <h2>Route</h2>
+          <svg id="route" viewBox="0 0 240 180" role="img" aria-label="Route taken, drawn from recorded locations"></svg>
+          <p class="note" id="routeNote"></p>
+        </div>
+      </div>
+
+      <div class="col">
+        <section class="panel chart-panel">
+          <div class="panel-head">
+            <h2>Force on the parcel</h2>
+            <button class="btn" id="live" type="button" aria-pressed="true">Following live</button>
+          </div>
+          <canvas id="chart" aria-label="Force over time. Dashed line marks the shock threshold."></canvas>
+          <input id="scrub" type="range" min="0" max="0" value="0" step="1" aria-label="Move through the recording" disabled>
+          <div class="axis-times"><span id="tStart"></span><span id="tEnd"></span></div>
+          <p class="status" id="status" role="status"></p>
+        </section>
+
+        <section class="panel readings-panel">
+          <div class="panel-head">
+            <h2>Readings</h2>
+            <button class="btn" id="onlyShocks" type="button" aria-pressed="false">Shocks only</button>
+          </div>
+          <ol class="ledger" id="ledger"></ol>
+          <div class="empty" id="emptyNote"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script type="module" src="/js/recorder.js"></script>
+</body>
+</html>
