@@ -23,6 +23,7 @@ export function toast(text, kind) {
   setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 300); }, 4200);
 }
 
+const themeLabel = (m) => ({ auto: "Auto", light: "Light", dark: "Dark" }[m]);
 const NAV = [["overview", "Overview", "/console"], ["tags", "Tags", "/console#tags"], ["parcels", "Parcels", "/console#parcels"], ["claims", "Claims", "/console#claims"], ["replay", "Replay", "/replay"]];
 
 /** Builds the frame and returns the element to put page content in. */
@@ -34,6 +35,7 @@ export function mountShell(root, { org, active, onAction }) {
     h("div", { class: "side-foot" },
       h("button", { class: "kbd-btn", type: "button", onclick: () => openPalette(onAction) }, "Search or jump", h("kbd", null, navigator.platform.includes("Mac") ? "⌘K" : "Ctrl K")),
       h("div", { class: "who" }, h("span", { class: "pill" }, org),
+        h("button", { class: "themebtn", type: "button", title: "Appearance", onclick: (e) => { e.currentTarget.textContent = themeLabel(window.spTheme.cycle()); } }, themeLabel(window.spTheme.get())),
         h("button", { class: "btn sm ghost", onclick: async () => { await api("POST", "/auth/logout", {}); location.href = "/login"; } }, "Sign out"))));
   const main = h("main", { class: "main", id: "main" });
   root.replaceChildren(h("div", { class: "frame" }, side, main));

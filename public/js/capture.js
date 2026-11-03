@@ -315,20 +315,20 @@ function drawScope() {
   const yMax = 4, top = 16, bottom = h - 14;
   const y = (v) => bottom - (Math.min(v, yMax) / yMax) * (bottom - top);
 
-  g.font = "12px Barlow, system-ui, sans-serif";
+  g.font = "12px -apple-system, Inter, system-ui, sans-serif";
   g.textBaseline = "middle";
   for (let v = 1; v <= 3; v++) {
-    g.strokeStyle = v === 1 ? "#3a5069" : line;
+    g.strokeStyle = line;
     g.lineWidth = 1;
     g.beginPath(); g.moveTo(0, y(v)); g.lineTo(w, y(v)); g.stroke();
     g.fillStyle = muted;
     g.textAlign = "right";
     g.fillText(v + " g", w - 8, y(v) - 8);
   }
-  g.setLineDash([5, 5]);
-  g.strokeStyle = shock;
+  g.globalAlpha = 0.09; g.fillStyle = shock; g.fillRect(0, top, w, y(SHOCK_HIGH_G) - top);
+  g.globalAlpha = 0.7; g.strokeStyle = shock; g.lineWidth = 1;
   g.beginPath(); g.moveTo(0, y(SHOCK_HIGH_G)); g.lineTo(w, y(SHOCK_HIGH_G)); g.stroke();
-  g.setLineDash([]);
+  g.globalAlpha = 1;
 
   if (S.armed && S.trace.length > 1) {
     const now = Date.now(), span = TRACE_SECONDS * 1000;
@@ -372,6 +372,7 @@ async function pairWithCompany(token) {
 
 // ---------- start ----------
 
+addEventListener("themechange", () => drawScope());
 (async function init() {
   const q = new URLSearchParams(location.search).get("parcel");
   let remembered = "";

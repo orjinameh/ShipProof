@@ -12,6 +12,7 @@ const el = {
   route: $("route"), routeNote: $("routeNote"), ledger: $("ledger"), empty: $("emptyNote"),
 };
 
+const cv = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const S = {
@@ -293,21 +294,24 @@ function drawChart() {
   const pad = { l: 38, r: 10, t: 10, b: 8 };
   const top = pad.t, bottom = h - pad.b;
   const y = (v) => bottom - (v / yMax) * (bottom - top);
-  g.font = "12px Barlow, system-ui, sans-serif";
+  g.font = "12px -apple-system, Inter, system-ui, sans-serif";
   g.textBaseline = "middle";
 
   for (let v = 0; v <= yMax; v++) {
-    g.strokeStyle = v === 1 ? "#3a5069" : line;
+    g.strokeStyle = line;
     g.lineWidth = 1;
     g.beginPath(); g.moveTo(pad.l, y(v)); g.lineTo(w - pad.r, y(v)); g.stroke();
     g.fillStyle = muted; g.textAlign = "right";
     g.fillText(v + " g", pad.l - 8, y(v));
   }
-  g.setLineDash([5, 5]); g.strokeStyle = shock; g.lineWidth = 1;
+  // Everything above the limit is tinted. No dashed line: the tint and a thin solid edge say the same thing, more quietly.
+  g.globalAlpha = 0.09; g.fillStyle = shock;
+  g.fillRect(pad.l, top, w - pad.l - pad.r, y(SHOCK_HIGH_G) - top);
+  g.globalAlpha = 0.7; g.strokeStyle = shock; g.lineWidth = 1;
   g.beginPath(); g.moveTo(pad.l, y(SHOCK_HIGH_G)); g.lineTo(w - pad.r, y(SHOCK_HIGH_G)); g.stroke();
-  g.setLineDash([]);
+  g.globalAlpha = 1;
   g.fillStyle = shock; g.textAlign = "left";
-  g.fillText("shock flag", pad.l + 6, y(SHOCK_HIGH_G) - 9);
+  g.fillText("Impact limit " + SHOCK_HIGH_G + " g", pad.l + 6, y(SHOCK_HIGH_G) - 9);
 
   if (!rs.length) {
     g.fillStyle = muted; g.textAlign = "center";
@@ -408,16 +412,16 @@ function drawRoute() {
   const ns = "http://www.w3.org/2000/svg";
   const make = (tag, attrs) => { const e = document.createElementNS(ns, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
 
-  svg.append(make("polyline", { points: pts.map((_, k) => px(k).toFixed(1) + "," + py(k).toFixed(1)).join(" "), fill: "none", stroke: "#c9a06b", "stroke-width": 2.2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+  svg.append(make("polyline", { points: pts.map((_, k) => px(k).toFixed(1) + "," + py(k).toFixed(1)).join(" "), fill: "none", stroke: cv("--kraft"), "stroke-width": 2.2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
   pts.forEach((p, k) => {
-    if (p.r.shock) svg.append(make("circle", { cx: px(k), cy: py(k), r: 3.5, fill: "#ff5a4f" }));
+    if (p.r.shock) svg.append(make("circle", { cx: px(k), cy: py(k), r: 3.5, fill: cv("--shock") }));
   });
-  svg.append(make("circle", { cx: px(0), cy: py(0), r: 4.5, fill: "#15212d", stroke: "#e9eef4", "stroke-width": 2 }));
-  svg.append(make("circle", { cx: px(pts.length - 1), cy: py(pts.length - 1), r: 4.5, fill: "#e9eef4" }));
+  svg.append(make("circle", { cx: px(0), cy: py(0), r: 4.5, fill: cv("--map-bg"), stroke: cv("--text"), "stroke-width": 2 }));
+  svg.append(make("circle", { cx: px(pts.length - 1), cy: py(pts.length - 1), r: 4.5, fill: cv("--text") }));
   // playhead: the located reading closest at or before the selected one
   let at = 0;
   pts.forEach((p, k) => { if (p.i <= S.idx) at = k; });
-  svg.append(make("circle", { cx: px(at), cy: py(at), r: 7, fill: "none", stroke: "#5aa9ff", "stroke-width": 2.5 }));
+  svg.append(make("circle", { cx: px(at), cy: py(at), r: 7, fill: "none", stroke: cv("--seal"), "stroke-width": 2.5 }));
 }
 
 // ---------- wiring ----------
@@ -472,6 +476,7 @@ el.scene.addEventListener("pointermove", (e) => {
 el.scene.addEventListener("pointerup", () => { drag = null; });
 
 window.addEventListener("resize", drawChart);
+window.addEventListener("themechange", () => render());
 
 // Opened from the console or a claim: read one parcel's delivery from a same-origin API path.
 const qs = new URLSearchParams(location.search);
