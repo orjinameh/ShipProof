@@ -66,6 +66,7 @@ function protection(t) {
     h("p", { class: "big-num" }, (p.peakG ?? 0).toFixed(1) + " g"),
     h("p", { class: "note" }, "Hardest knock on the way. This parcel's limit was " + p.limitG + " g."),
     h("p", null, rough ? "The sensor recorded " + p.events + " rough moment" + (p.events > 1 ? "s" : "") + " past the limit." : "Nothing went past the limit."),
+    p.dropCm ? h("p", null, "The tag measured a fall of about " + p.dropCm + " cm.") : null,
     h("p", { class: "note" }, p.readingCount + " signed readings, covering " + Math.round(p.coverage * 100) + "% of the trip."));
 }
 

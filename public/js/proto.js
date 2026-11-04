@@ -6,7 +6,7 @@ export const SHOCK_LOW_G = 0.3; // free fall
 
 export function canonicalString(r) {
   return [
-    "v1",
+    r.v === 2 ? "v2" : "v1",
     r.deviceId,
     r.parcelId,
     r.ts,
@@ -16,6 +16,7 @@ export function canonicalString(r) {
     r.shock,
     r.latE6 ?? "",
     r.lonE6 ?? "",
+    ...(r.v === 2 ? [r.snd ?? "", r.ff ?? ""] : []),
   ].join("|");
 }
 

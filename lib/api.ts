@@ -522,7 +522,7 @@ async function track(req: Request, ctx: ApiContext, id: string, action: string |
     dispatchedAt: parcel.dispatchedAt ?? null,
     deliveredAt: parcel.deliveredAt ?? null,
     // Only counts and the peak: what the sensor saw, with nothing about other parcels or the company.
-    protection: evidence ? { readingCount: evidence.readingCount, coverage: evidence.coverage, peakG: evidence.peakG, events: evidence.events.length, limitG: limitsFor(parcel.profile, parcel.overrides).shockG } : null,
+    protection: evidence ? { readingCount: evidence.readingCount, coverage: evidence.coverage, peakG: evidence.peakG, events: evidence.events.length, dropCm: evidence.events.reduce((m: number | null, e) => (e.dropCm !== undefined && (m === null || e.dropCm > m) ? e.dropCm : m), null), limitG: limitsFor(parcel.profile, parcel.overrides).shockG } : null,
     canReport: parcel.status === "delivered" && !claim,
     claim: claim
       ? {

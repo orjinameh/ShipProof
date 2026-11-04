@@ -48,3 +48,8 @@ test("unit conversion, shock rule and representative sample", () => {
   ]);
   assert.equal(rep.az, 3100);
 });
+
+test("v2 canonical string matches the server, with and without snd/ff", () => {
+  const base = { v: 2, deviceId: "ph-aa", parcelId: "P1", ts: 1700000000, ax: 0, ay: 0, az: 1000, shock: 0 };
+  for (const r of [base, { ...base, ff: 480 }, { ...base, snd: 70, ff: 0 }]) assert.equal(clientCanonical(r), serverCanonical(r as never));
+});

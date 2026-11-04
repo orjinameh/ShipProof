@@ -1,6 +1,6 @@
 import {
   generateDeviceKey, publicKeyRaw, deviceIdFor, signReading, toMilliG, magnitudeG, isShock,
-  pickRepresentative, b64, signText, SHOCK_HIGH_G,
+  pickRepresentative, b64, signText, SHOCK_HIGH_G, SHOCK_LOW_G,
 } from "/js/proto.js";
 import { loadDeviceKey, saveDeviceKey, saveReading, deleteReadings, loadOutbox } from "/js/idb.js";
 
@@ -9,6 +9,7 @@ const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const FLUSH_MS = 3000;
 const BATCH = 50;
 const TRACE_SECONDS = 20;
+const FRAME_MS = 16; // one sample is about 16 ms at 60 Hz
 
 const el = {
   parcel: $("parcel"), arm: $("arm"), status: $("status"), scope: $("scope"), scopeOff: $("scopeOff"), force: $("force"),
@@ -21,7 +22,7 @@ const S = {
   armed: false, key: null, deviceId: null, pubB64: null, keyPersisted: true, registered: false,
   parcelId: null, samples: [], trace: [], lastTs: 0, fix: null, geoWatch: null,
   sent: 0, rejected: 0, waiting: 0, shocks: 0, lastError: "", wake: null,
-  motionCount: 0, rate: 0, rateAt: 0, timers: [], flushing: false, raf: 0,
+  motionCount: 0, ffStart: 0, ffLast: 0, ffMax: 0, rate: 0, rateAt: 0, timers: [], flushing: false, raf: 0,
 };
 
 function say(msg, bad = false) {
@@ -76,6 +77,14 @@ function onMotion(e) {
   const ax = toMilliG(a.x, isIOS), ay = toMilliG(a.y, isIOS), az = toMilliG(a.z, isIOS);
   const now = Date.now();
   S.samples.push({ ax, ay, az });
+  // free fall: an unbroken run of samples at or below 0.3 g; its length gives the drop height
+  if (magnitudeG(ax, ay, az) <= SHOCK_LOW_G) {
+    if (!S.ffStart) S.ffStart = now;
+    S.ffLast = now;
+  } else if (S.ffStart) {
+    S.ffMax = Math.max(S.ffMax, S.ffLast - S.ffStart + FRAME_MS);
+    S.ffStart = 0;
+  }
   S.trace.push({ t: now, g: magnitudeG(ax, ay, az) });
   const cutoff = now - TRACE_SECONDS * 1000;
   while (S.trace.length && S.trace[0].t < cutoff) S.trace.shift();
@@ -122,13 +131,19 @@ async function tick() {
   S.lastTs = ts;
 
   const g = magnitudeG(pick.ax, pick.ay, pick.az);
-  const reading = { v: 1, deviceId: S.deviceId, parcelId: S.parcelId, ts, ax: pick.ax, ay: pick.ay, az: pick.az, shock: isShock(g) ? 1 : 0 };
+  // longest fall since the last reading, counting one still in progress
+  let ff = S.ffMax;
+  if (S.ffStart) { ff = Math.max(ff, S.ffLast - S.ffStart + FRAME_MS); S.ffStart = S.ffLast; } // carry a running fall into the next second
+  S.ffMax = 0;
+  ff = ff >= 50 ? Math.min(60000, Math.round(ff)) : 0;
+  const reading = { v: 2, ff, deviceId: S.deviceId, parcelId: S.parcelId, ts, ax: pick.ax, ay: pick.ay, az: pick.az, shock: isShock(g) ? 1 : 0 };
   if (S.fix && Date.now() - S.fix.at < 30000) {
     reading.latE6 = S.fix.latE6;
     reading.lonE6 = S.fix.lonE6;
   }
   const signed = await signReading(S.key, reading);
   if (signed.shock) S.shocks++;
+  if (ff >= 100) say("Fall detected: about " + Math.round(0.5 * 9.81 * (ff / 1000) ** 2 * 100) + " cm (" + ff + " ms in the air).");
   try { await saveReading(signed); } catch { /* keep going from memory below */ }
   outboxMemory.push(signed);
   render();
