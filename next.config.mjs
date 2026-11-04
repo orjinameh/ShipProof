@@ -10,6 +10,8 @@ const nextConfig = {
         { source: "/capture", destination: "/capture.html" },
         { source: "/verify/:id", destination: "/verify.html" },
         { source: "/login", destination: "/login.html" },
+        { source: "/track/:id", destination: "/track.html" },
+        { source: "/dock", destination: "/dock.html" },
         { source: "/console", destination: "/console.html" },
         { source: "/claims/:id", destination: "/claim.html" },
       ],

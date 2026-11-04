@@ -375,3 +375,81 @@ test("scan-to-pair: a phone proves it holds its key, then appears as the company
   setNow(T0 + 10_000 + 11 * 60);
   assert.equal((await call(ctx, "POST", "/api/pair", await body(token))).status, 400);
 });
+
+test("buyer tracking page: follow the parcel, report a problem, see the outcome, appeal a denial", async () => {
+  const stub = await stubServ((body) => {
+    const payload = JSON.parse(body.messages.find((m: any) => m.role === "user").content);
+    return { content: goodVerdict(payload.evidence.events[0]?.startTs ?? null) };
+  });
+  const { ctx, setNow } = setup({ apiKey: "k", baseUrl: stub.url });
+  const cookie = await signup(ctx);
+  const tag = await makeTag(ctx);
+  await call(ctx, "POST", "/api/org/tags", { deviceId: tag.deviceId, label: "T" }, cookie);
+  const pid = (await call(ctx, "POST", "/api/parcels", { orderRef: "ORD-77", deviceId: tag.deviceId, profile: "fragile" }, cookie)).json.parcel.id;
+
+  // not found, and wrong ids reveal nothing
+  assert.equal((await call(ctx, "GET", "/api/track/nope_nope")).status, 404);
+  // before dispatch: no protection summary, cannot report
+  let t = (await call(ctx, "GET", `/api/track/${pid}`)).json;
+  assert.equal(t.company, "Acme"); assert.equal(t.status, "created"); assert.equal(t.protection, null); assert.equal(t.canReport, false);
+  assert.equal((await call(ctx, "POST", `/api/track/${pid}/claim`, { name: "Sam", statement: "x" })).status, 409);
+
+  setNow(T0); await call(ctx, "POST", `/api/parcels/${pid}/dispatch`, {}, cookie);
+  setNow(T0 + 1000);
+  for (let s = T0 + 1; s <= T0 + 900; s += 30) await tag.send(s, 0, 0, 1000);
+  await tag.send(T0 + 450, 300, 100, 3200);
+  await call(ctx, "POST", `/api/parcels/${pid}/delivered`, {}, cookie);
+
+  t = (await call(ctx, "GET", `/api/track/${pid}`)).json;
+  assert.equal(t.status, "delivered"); assert.equal(t.canReport, true);
+  assert.ok(t.protection.peakG > 3 && t.protection.events >= 1 && t.protection.limitG === 1.8);
+  assert.equal(JSON.stringify(t).includes("readings"), false);
+
+  // the buyer reports a problem
+  assert.equal((await call(ctx, "POST", `/api/track/${pid}/claim`, { name: "", statement: "x" })).status, 400);
+  assert.equal((await call(ctx, "POST", `/api/track/${pid}/claim`, { name: "Sam Buyer", contact: "sam@mail.test", statement: "It arrived crushed." })).status, 201);
+  assert.equal((await call(ctx, "POST", `/api/track/${pid}/claim`, { name: "Sam Buyer", statement: "again" })).status, 409);
+  const list = (await call(ctx, "GET", "/api/claims", undefined, cookie)).json.claims;
+  assert.equal(list.length, 1); assert.equal(list[0].source, "buyer");
+  const claimId = list[0].id;
+  assert.equal((await call(ctx, "GET", `/api/claims/${claimId}`, undefined, cookie)).json.claim.contact, "sam@mail.test");
+
+  // while it's being reviewed the buyer sees status only
+  t = (await call(ctx, "GET", `/api/track/${pid}`)).json;
+  assert.equal(t.claim.status, "open"); assert.equal(t.claim.outcome, null); assert.equal(t.claim.verifyUrl, null);
+
+  // company investigates and denies; the buyer sees the outcome but not the private note
+  assert.equal((await call(ctx, "POST", `/api/claims/${claimId}/investigate`, {}, cookie)).status, 200);
+  t = (await call(ctx, "GET", `/api/track/${pid}`)).json;
+  assert.equal(t.claim.outcome, null, "verdict is advice to the company, not shown to the buyer yet");
+  await call(ctx, "POST", `/api/claims/${claimId}/close`, { resolution: "refund_denied", note: "INTERNAL-NOTE" }, cookie);
+  const after = (await call(ctx, "GET", `/api/track/${pid}`)).json;
+  assert.equal(after.claim.outcome, "refund_denied");
+  assert.ok(after.claim.verifyUrl.endsWith(claimId));
+  assert.equal(JSON.stringify(after).includes("INTERNAL-NOTE"), false);
+  assert.equal(after.claim.canAppeal, true);
+
+  // the buyer appeals the denial; the company's earlier decision is kept for the record
+  assert.equal((await call(ctx, "POST", `/api/track/${pid}/appeal`, { note: "" })).status, 400);
+  assert.equal((await call(ctx, "POST", `/api/track/${pid}/appeal`, { note: "The tag shows a 3 g hit." })).status, 200);
+  const view = (await call(ctx, "GET", `/api/claims/${claimId}`, undefined, cookie)).json;
+  assert.equal(view.claim.status, "appealed"); assert.equal(view.claim.appeal.by, "buyer"); assert.equal(view.claim.appeal.previous.outcome, "refund_denied");
+  assert.equal((await call(ctx, "POST", `/api/track/${pid}/appeal`, { note: "twice" })).status, 409);
+  // the company can decide again
+  assert.equal((await call(ctx, "POST", `/api/claims/${claimId}/close`, { resolution: "refund_approved" }, cookie)).status, 200);
+  const done = (await call(ctx, "GET", `/api/track/${pid}`)).json;
+  assert.equal(done.claim.outcome, "refund_approved"); assert.equal(done.claim.canAppeal, false);
+  stub.close();
+});
+
+test("a claim the company denies without a model verdict can still be appealed, within the window", async () => {
+  const { ctx, setNow } = setup();
+  const cookie = await signup(ctx);
+  const { id } = await deliveredParcel(ctx, setNow, cookie);
+  await call(ctx, "POST", `/api/track/${id}/claim`, { name: "Sam", statement: "broken" });
+  const claimId = (await call(ctx, "GET", "/api/claims", undefined, cookie)).json.claims[0].id;
+  await call(ctx, "POST", `/api/claims/${claimId}/close`, { resolution: "refund_denied" }, cookie);
+  assert.equal((await call(ctx, "GET", `/api/track/${id}`)).json.claim.canAppeal, true);
+  setNow(T0 + 1000 + 49 * 3600);
+  assert.equal((await call(ctx, "POST", `/api/track/${id}/appeal`, { note: "late" })).status, 409);
+});

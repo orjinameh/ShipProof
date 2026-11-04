@@ -173,6 +173,9 @@ export async function handleApi(req: Request, given?: ApiContext): Promise<Respo
     // ----- public: a phone or tag pairs itself to a company by proving it holds its key
     if (a === "pair" && method === "POST") return await pairTag(req, ctx);
 
+    // ----- public: the buyer's tracking page (the parcel id in the link is the key)
+    if (a === "track" && b) return await track(req, ctx, b, c, method, Math.floor(ctx.now() / 1000));
+
     // ----- public: tags and their readings (checked by signature, not by login)
     if (a === "devices" && method === "POST") return await registerDevice(req, ctx);
     if (a === "readings" && method === "POST") {
@@ -483,9 +486,72 @@ async function listClaims(ctx: ApiContext, auth: Auth): Promise<Response> {
       orderRef: byId.get(c.parcelId)?.orderRef ?? "",
       claimant: c.claimant,
       filedAt: c.filedAt,
+      source: c.source ?? "company",
       status: c.status,
       outcome: c.decision?.verdict.outcome ?? null,
     })),
+  });
+}
+
+async function track(req: Request, ctx: ApiContext, id: string, action: string | undefined, method: string, nowS: number): Promise<Response> {
+  const parcel = ID_RE.test(id) ? await ctx.store.getParcel(id) : undefined;
+  const org = parcel ? await ctx.store.getOrg(parcel.orgId) : undefined;
+  if (!parcel || !org) return fail(404, "not_found", "We can't find this parcel. Check the link in your message.");
+  const findClaim = async () => (await ctx.store.listClaims(parcel.orgId)).find((c) => c.parcelId === parcel.id);
+
+  if (action === "claim" && method === "POST") {
+    const r = await readBody(req);
+    if ("res" in r) return r.res;
+    const b = r.body as Body;
+    if (parcel.status !== "delivered") return fail(409, "not_delivered", "You can report a problem once the parcel is marked delivered.");
+    if (await findClaim()) return fail(409, "already_filed", "A report was already filed for this parcel.");
+    const name = str(b.name, 1, 100);
+    const statement = str(b.statement, 1, 2000);
+    const contact = b.contact === undefined || b.contact === "" ? "" : str(b.contact, 1, 120);
+    if (!name) return fail(400, "bad_name", "Enter your name, up to 100 characters.");
+    if (!statement) return fail(400, "bad_statement", "Describe what is wrong, up to 2000 characters.");
+    if (contact === undefined) return fail(400, "bad_contact", "Keep the contact detail to 120 characters.");
+    const claim: Claim = { id: newId("clm"), orgId: parcel.orgId, parcelId: parcel.id, claimant: name, statement, source: "buyer", ...(contact ? { contact } : {}), filedAt: nowS, status: "open" };
+    await ctx.store.putClaim(claim);
+    return json(201, { ok: true });
+  }
+
+  if (action === "appeal" && method === "POST") {
+    const r = await readBody(req);
+    if ("res" in r) return r.res;
+    const note = str((r.body as Body).note, 1, 1000);
+    if (!note) return fail(400, "bad_note", "Say why you disagree, up to 1000 characters.");
+    const claim = await findClaim();
+    if (!claim) return fail(404, "no_claim", "No report was filed for this parcel.");
+    return applyAppeal(ctx, claim, note, "buyer", nowS);
+  }
+
+  if (action || method !== "GET") return fail(404, "not_found", "No such page.");
+  const claim = await findClaim();
+  const evidence = parcel.dispatchedAt ? await evidenceFor(ctx, parcel) : undefined;
+  const finished = claim && (claim.status === "closed" || claim.status === "appealed");
+  return json(200, {
+    company: org.name,
+    orderRef: parcel.orderRef,
+    status: parcel.status,
+    dispatchedAt: parcel.dispatchedAt ?? null,
+    deliveredAt: parcel.deliveredAt ?? null,
+    // Only counts and the peak: what the sensor saw, with nothing about other parcels or the company.
+    protection: evidence ? { readingCount: evidence.readingCount, coverage: evidence.coverage, peakG: evidence.peakG, events: evidence.events.length, limitG: limitsFor(parcel.profile, parcel.overrides).shockG } : null,
+    canReport: parcel.status === "delivered" && !claim,
+    claim: claim
+      ? {
+          status: claim.status,
+          filedAt: claim.filedAt,
+          // The company's notes stay private. The buyer sees the outcome only once the company has decided.
+          outcome: claim.status === "closed" && claim.resolution ? claim.resolution.outcome : null,
+          decidedAt: claim.status === "closed" && claim.resolution ? claim.resolution.at : null,
+          verifyUrl: finished && claim.decision ? `/verify/${claim.id}` : null,
+          canAppeal: canAppealNow(claim, nowS, ctx.appealHours),
+          appealUntil: appealDeadline(claim, ctx.appealHours) ?? null,
+          appealedAt: claim.appeal?.at ?? null,
+        }
+      : null,
   });
 }
 
@@ -536,7 +602,7 @@ async function claimDetail(ctx: ApiContext, claim: Claim, nowS: number): Promise
         }
       : null,
     investigator: { configured: !!ctx.serv.apiKey, model: ctx.serv.model },
-    canAppeal: claim.status === "decided" && !!d && nowS <= d.appealUntil,
+    canAppeal: canAppealNow(claim, nowS, ctx.appealHours),
   });
 }
 
@@ -596,21 +662,37 @@ async function runInvestigation(req: Request, ctx: ApiContext, claim: Claim, now
   }
 }
 
+/** An appeal is possible from the verdict until the window ends, including after the company denied the refund. */
+function appealDeadline(c: Claim, hours: number): number | undefined {
+  // The window runs from the verdict. A claim the company closed without a verdict gets one from the day it was closed.
+  return c.decision ? c.decision.appealUntil : c.resolution ? c.resolution.at + hours * 3600 : undefined;
+}
+function canAppealNow(c: Claim, nowS: number, hours: number): boolean {
+  const until = appealDeadline(c, hours);
+  if (until === undefined || nowS > until) return false;
+  return c.status === "decided" || (c.status === "closed" && c.resolution?.outcome !== "refund_approved");
+}
+
+async function applyAppeal(ctx: ApiContext, claim: Claim, note: string, by: string, nowS: number): Promise<Response> {
+  let applied = false;
+  const updated = await ctx.store.mutateClaim(claim.id, (c) => {
+    if (!canAppealNow(c, nowS, ctx.appealHours)) return undefined;
+    applied = true;
+    const { resolution, ...rest } = c;
+    return { ...rest, status: "appealed", appeal: { note, at: nowS, by, ...(resolution ? { previous: resolution } : {}) } };
+  });
+  if (!applied || !updated) {
+    return fail(409, "bad_state", (appealDeadline(claim, ctx.appealHours) ?? Infinity) < nowS ? "The appeal window has closed." : "This claim can't be appealed right now.");
+  }
+  return json(200, { claim: updated });
+}
+
 async function appeal(req: Request, ctx: ApiContext, auth: Auth, claim: Claim, nowS: number): Promise<Response> {
   const r = await readBody(req);
   if ("res" in r) return r.res;
   const note = str((r.body as Body).note, 1, 1000);
   if (!note) return fail(400, "bad_note", "Say why you are appealing, up to 1000 characters.");
-  let applied = false;
-  const updated = await ctx.store.mutateClaim(claim.id, (c) => {
-    if (c.status !== "decided" || !c.decision || nowS > c.decision.appealUntil) return undefined;
-    applied = true;
-    return { ...c, status: "appealed", appeal: { note, at: nowS, by: auth.user.email } };
-  });
-  if (!applied || !updated) {
-    return fail(409, "bad_state", claim.decision && nowS > claim.decision.appealUntil ? "The appeal window has closed." : "Only a claim with a decision can be appealed.");
-  }
-  return json(200, { claim: updated });
+  return applyAppeal(ctx, claim, note, auth.user.email, nowS);
 }
 
 const RESOLUTIONS: Resolution[] = ["refund_approved", "refund_denied", "other"];

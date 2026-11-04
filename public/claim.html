@@ -26,12 +26,12 @@ async function load() {
     h("a", { href: "/console#claims" }, "← All claims"),
     h("section", { class: "panel pad" }, h("h2", null, "Claim"),
       h("dl", { class: "kv" }, h("dt", null, "Order"), h("dd", null, parcel.orderRef), h("dt", null, "Profile"), h("dd", null, parcel.profileLabel + " (impact limit " + parcel.limits.shockG + " g)"),
-        h("dt", null, "Claimant"), h("dd", null, claim.claimant), h("dt", null, "Filed"), h("dd", null, fmtTime(claim.filedAt)), h("dt", null, "Status"), h("dd", null, claim.status)),
+        h("dt", null, "Claimant"), h("dd", null, claim.claimant + (claim.source === "buyer" ? " (filed by the buyer)" : "")), claim.contact ? [h("dt", null, "Contact"), h("dd", null, claim.contact)] : null, h("dt", null, "Filed"), h("dd", null, fmtTime(claim.filedAt)), h("dt", null, "Status"), h("dd", null, claim.status)),
       h("p", null, h("em", null, "“" + claim.statement + "”")), h("p", { class: "note" }, "The statement is the claimant's word. The investigator treats it as unverified and decides from the sensor evidence.")),
     replayPanel(ev, parcel),
     evidencePanel(ev, parcel),
     decisionPanel(claim, integrity, investigator, canAppeal, ev),
-    claim.appeal ? h("section", { class: "panel pad" }, h("h2", null, "Appeal"), h("p", null, claim.appeal.note), h("p", { class: "note" }, "By " + claim.appeal.by + ", " + fmtTime(claim.appeal.at))) : null,
+    claim.appeal ? h("section", { class: "panel pad" }, h("h2", null, "Appeal"), h("p", null, claim.appeal.note), claim.appeal.previous ? h("p", { class: "note" }, "Your earlier decision was: " + claim.appeal.previous.outcome.replace("_", " ") + ". Close the claim again to decide.") : null, h("p", { class: "note" }, "By " + claim.appeal.by + ", " + fmtTime(claim.appeal.at))) : null,
     claim.resolution ? h("section", { class: "panel pad" }, h("h2", null, "Resolution"), h("p", null, claim.resolution.outcome.replace("_", " ")), claim.resolution.note ? h("p", null, claim.resolution.note) : null) : null));
 }
 

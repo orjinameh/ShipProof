@@ -84,12 +84,16 @@ export interface Claim {
   parcelId: string;
   claimant: string;
   statement: string;
+  /** "buyer" when the buyer filed it from their tracking page, otherwise a company user did. */
+  source?: "buyer" | "company";
+  /** How to reach the buyer (email or phone), as they typed it. */
+  contact?: string;
   filedAt: number;
   status: ClaimStatus;
   decision?: Decision;
   /** Set while an investigation is running, so a crashed run can be retried after a while. */
   investigatingSince?: number;
   lastError?: { message: string; at: number };
-  appeal?: { note: string; at: number; by: string };
+  appeal?: { note: string; at: number; by: string; /** the company's earlier resolution, if the appeal came after it */ previous?: { outcome: Resolution; note: string; at: number; by: string } };
   resolution?: { outcome: Resolution; note: string; at: number; by: string };
 }

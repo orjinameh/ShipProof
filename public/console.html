@@ -42,7 +42,7 @@ function steps() {
   const moving = parcels.some((p) => p.status === "in_transit"), delivered = parcels.some((p) => p.status === "delivered");
   const hasClaim = claims.length > 0, decided = claims.some((c) => c.outcome), closed = claims.some((c) => c.status === "closed");
   return [
-    { t: "Pair a tag", d: "Scan a QR code with a phone, or add a hardware tag by its ID.", done: hasTag, go: () => openPairing(), cta: "Pair a phone" },
+    { t: "Set up a tag", d: "Connect the tag by USB and the dock page sets it up. No hardware yet? A phone can stand in as a demo tag.", done: hasTag, go: () => (location.href = "/dock"), cta: "Set up a hardware tag", alt: ["Demo with a phone", () => openPairing()] },
     { t: "Create a parcel", d: "Pick the tag and a handling profile that matches what you ship.", done: hasParcel, go: () => (location.hash = "parcels"), cta: "New parcel" },
     { t: "Dispatch it", d: "Readings count as evidence only from this moment.", done: moving || delivered, go: () => (location.hash = "parcels"), cta: "Open parcels" },
     { t: "Mark it delivered", d: "This closes the custody window.", done: delivered, go: () => (location.hash = "parcels"), cta: "Open parcels" },
@@ -59,7 +59,7 @@ function overview() {
   return h("div", { class: "stack" },
     h("h1", { class: "title" }, "Welcome, " + orgName),
     cur === -1 ? h("section", { class: "panel pad hero" }, h("h2", null, "You've been through the whole flow"), h("p", null, "Every claim now has sensor evidence, a verdict and a sealed record."))
-      : h("section", { class: "panel pad hero" }, h("h2", null, "Next step"), h("p", { class: "big" }, s[cur].t), h("p", null, s[cur].d), h("button", { class: "btn", onclick: s[cur].go }, s[cur].cta)),
+      : h("section", { class: "panel pad hero" }, h("h2", null, "Next step"), h("p", { class: "big" }, s[cur].t), h("p", null, s[cur].d), h("div", { class: "row" }, h("button", { class: "btn", onclick: s[cur].go }, s[cur].cta), s[cur].alt ? h("button", { class: "btn ghost", onclick: s[cur].alt[1] }, s[cur].alt[0]) : null)),
     h("div", { class: "stats" }, stat(D.tags.length, "tags"), stat(D.parcels.length, "parcels"), stat(active, "open claims")),
     h("section", { class: "panel pad" }, h("h2", null, "The path"), h("ol", { class: "path" }, s.map((x, i) => h("li", { class: x.done ? "done" : i === cur ? "now" : "" }, h("span", { class: "dot" }, x.done ? "✓" : i + 1), h("div", null, h("b", null, x.t), h("small", null, x.d))))))
   );
@@ -71,12 +71,14 @@ function tagsView() {
   const msg = h("p", { class: "msg", role: "status" });
   const id = h("input", { placeholder: "Hardware tag device ID", maxlength: 64, spellcheck: "false" });
   const label = h("input", { placeholder: "Label (optional)", maxlength: 60 });
-  return h("div", { class: "stack" }, h("div", { class: "row between" }, h("h1", { class: "title" }, "Tags"), h("button", { class: "btn", onclick: () => openPairing() }, "Pair a phone")),
+  return h("div", { class: "stack" }, h("div", { class: "row between" }, h("h1", { class: "title" }, "Tags"), h("a", { class: "btn", href: "/dock" }, "Set up a hardware tag")),
     h("section", { class: "panel pad" },
       D.tags.length ? h("table", { class: "tbl" }, h("tr", null, h("th", null, "Label"), h("th", null, "Device"), h("th", null, "Last reading")),
         D.tags.map((t) => h("tr", null, h("td", null, t.label), h("td", { class: "mono" }, t.deviceId), h("td", null, t.lastReadingTs ? fmtTime(t.lastReadingTs) : "none yet"))))
-        : h("p", { class: "empty" }, "No tags yet. Pair a phone, or add a hardware tag below.")),
-    h("section", { class: "panel pad" }, h("h2", null, "Add a hardware tag"),
+        : h("p", { class: "empty" }, "No tags yet. Set up a hardware tag, or try a phone as a demo tag below.")),
+    h("section", { class: "panel pad" }, h("h2", null, "Demo without hardware"), h("p", { class: "note" }, "A phone's motion sensors can stand in for a tag, to try the whole flow. Companies shipping real parcels use hardware tags."),
+      h("button", { class: "btn sm ghost", onclick: () => openPairing() }, "Pair a phone as a demo tag")),
+    h("section", { class: "panel pad" }, h("h2", null, "Add a tag by its ID"),
       h("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); try { await api("POST", "/org/tags", { deviceId: id.value.trim(), label: label.value.trim() }); toast("Tag added", "ok"); await load(); } catch (err) { say(msg, err.message, true); } } },
         h("div", { class: "row" }, id, label), h("button", { class: "btn sm", type: "submit" }, "Add tag"), msg)));
 }
@@ -90,17 +92,18 @@ function parcelsView() {
   const prof = h("select", null, profiles.map((p) => h("option", { value: p.name }, p.label + " - " + p.description)));
   const act = (p, step, text) => h("button", { class: "btn sm", onclick: async (e) => { e.target.disabled = true; try { await api("POST", "/parcels/" + p.id + "/" + step, {}); toast(step === "dispatch" ? "Dispatched. Readings now count." : "Delivered. The window is closed.", "ok"); await load(); } catch (err) { toast(err.message, "bad"); e.target.disabled = false; } } }, text);
   const claimBtn = (p) => h("button", { class: "btn sm", onclick: () => claimDialog(p) }, "File claim");
+  const buyerLink = (p) => h("button", { class: "btn sm ghost", title: "Copy the link to send the buyer", onclick: async () => { const url = location.origin + "/track/" + p.id; try { await navigator.clipboard.writeText(url); toast("Buyer link copied", "ok"); } catch { prompt("Copy this link for the buyer", url); } } }, "Buyer link");
   const replay = (p) => h("a", { class: "btn sm ghost", href: "/replay?src=" + encodeURIComponent("/api/parcels/" + p.id + "/readings") + "&title=" + encodeURIComponent(p.orderRef) + "&limit=" + p.limits.shockG }, "Replay");
   return h("div", { class: "stack" }, h("h1", { class: "title" }, "Parcels"),
     h("section", { class: "panel pad" }, h("h2", null, "New parcel"),
       D.tags.length ? h("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); try { await api("POST", "/parcels", { orderRef: ref.value.trim(), deviceId: tag.value, profile: prof.value }); toast("Parcel created", "ok"); await load(); } catch (err) { say(msg, err.message, true); } } },
         h("div", { class: "two" }, h("div", null, h("label", null, "Order reference"), ref), h("div", null, h("label", null, "Tag inside the parcel"), tag)),
         h("div", null, h("label", null, "Handling profile"), prof), h("button", { class: "btn sm", type: "submit" }, "Create parcel"), msg)
-        : h("div", null, h("p", { class: "empty" }, "You need a tag first."), h("button", { class: "btn sm", onclick: () => openPairing() }, "Pair a phone"))),
+        : h("div", null, h("p", { class: "empty" }, "You need a tag first."), h("div", { class: "row" }, h("a", { class: "btn sm", href: "/dock" }, "Set up a hardware tag"), h("button", { class: "btn sm ghost", onclick: () => openPairing() }, "Demo with a phone")))),
     h("section", { class: "panel pad" }, h("h2", null, "All parcels"),
       D.parcels.length ? h("table", { class: "tbl" }, h("tr", null, h("th", null, "Order"), h("th", null, "Profile"), h("th", null, "Status"), h("th", null, "")),
         D.parcels.map((p) => h("tr", null, h("td", null, p.orderRef), h("td", null, p.profileLabel, " ", h("span", { class: "mono" }, p.limits.shockG + " g")), h("td", null, statusPill(p.status)),
-          h("td", { class: "right" }, p.dispatchedAt ? replay(p) : null, " ", p.status === "created" ? act(p, "dispatch", "Dispatch") : p.status === "in_transit" ? act(p, "delivered", "Mark delivered") : claimBtn(p)))))
+          h("td", { class: "right" }, buyerLink(p), " ", p.dispatchedAt ? replay(p) : null, " ", p.status === "created" ? act(p, "dispatch", "Dispatch") : p.status === "in_transit" ? act(p, "delivered", "Mark delivered") : claimBtn(p)))))
         : h("p", { class: "empty" }, "No parcels yet.")));
 }
 
@@ -119,7 +122,7 @@ function claimDialog(p) {
 function claimsView() {
   return h("div", { class: "stack" }, h("h1", { class: "title" }, "Claims"),
     h("section", { class: "panel pad" }, D.claims.length ? h("table", { class: "tbl" }, h("tr", null, h("th", null, "Order"), h("th", null, "Claimant"), h("th", null, "Filed"), h("th", null, "Status"), h("th", null, "Verdict")),
-      D.claims.map((c) => { const o = outcomeLabel[c.outcome]; return h("tr", { class: "click", onclick: () => (location.href = "/claims/" + c.id) }, h("td", null, h("a", { href: "/claims/" + c.id }, c.orderRef || c.parcelId)), h("td", null, c.claimant), h("td", null, fmtTime(c.filedAt)), h("td", null, h("span", { class: "pill" }, c.status)), h("td", null, o ? h("span", { class: "pill " + o[1] }, o[0]) : "-")); }))
+      D.claims.map((c) => { const o = outcomeLabel[c.outcome]; return h("tr", { class: "click", onclick: () => (location.href = "/claims/" + c.id) }, h("td", null, h("a", { href: "/claims/" + c.id }, c.orderRef || c.parcelId)), h("td", null, c.claimant, c.source === "buyer" ? h("span", { class: "pill", style: "margin-left:6px" }, "Buyer") : null), h("td", null, fmtTime(c.filedAt)), h("td", null, h("span", { class: "pill" }, c.status)), h("td", null, o ? h("span", { class: "pill " + o[1] }, o[0]) : "-")); }))
       : h("p", { class: "empty" }, "No claims yet. File one from a delivered parcel.")));
 }
 

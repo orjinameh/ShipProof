@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track your parcel | ShipProof</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="/js/theme.js"></script>
+<link rel="stylesheet" href="/shipproof.css">
+<style>
+.track{max-width:640px;margin:0 auto;padding:22px 16px 80px}
+.steps{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:0}
+.steps li{display:grid;grid-template-columns:28px 1fr;gap:14px;padding-bottom:18px;position:relative;opacity:.5}
+.steps li:not(:last-child)::before{content:"";position:absolute;left:13px;top:28px;bottom:0;width:2px;background:var(--line)}
+.steps li.done,.steps li.now{opacity:1}
+.steps .dot{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;border:2px solid var(--line);font-size:.8rem;font-weight:700;background:var(--panel)}
+.steps .done .dot{background:var(--good-bg);border-color:var(--good);color:var(--good-fg)}
+.steps .now .dot{border-color:var(--seal);box-shadow:0 0 0 5px color-mix(in srgb,var(--seal) 18%,transparent)}
+.steps small{display:block;color:var(--muted)}
+.big-num{font-size:2.6rem;font-weight:700;letter-spacing:-.03em;line-height:1}
+.outcome{border-left:4px solid var(--seal);padding-left:14px}
+.outcome.good{border-color:var(--good)}.outcome.bad{border-color:var(--shock)}
+.foot{text-align:center;color:var(--muted);font-size:.85rem;margin-top:26px}
+</style></head>
+<body><div class="track" id="root"></div>
+<script type="module">
+import { h, fmtTime, say } from "/js/api.js";
+const root = document.getElementById("root");
+const id = location.pathname.split("/").filter(Boolean).pop();
+let timer;
+
+async function call(method, path, body) {
+  const res = await fetch("/api/track/" + encodeURIComponent(id) + path, { method, headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined, cache: "no-store" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.message || "Something went wrong."), { status: res.status });
+  return data;
+}
+
+const head = (t) => h("header", { class: "top" }, h("a", { class: "brand", href: "/" }, "Ship", h("span", null, "Proof")), h("span", { class: "pill" }, t));
+
+async function load() {
+  const t = await call("GET", "");
+  const busy = t.status !== "delivered" || (t.claim && ["open", "investigating", "decided", "appealed"].includes(t.claim.status));
+  clearTimeout(timer); if (busy) timer = setTimeout(() => load().catch(() => {}), 20000);
+  root.replaceChildren(head(t.company),
+    h("div", { class: "stack" },
+      h("section", { class: "panel pad" }, h("h2", null, "Order " + t.orderRef), journey(t)),
+      t.protection ? protection(t) : null,
+      t.canReport ? reportForm() : null,
+      t.claim ? claimCard(t) : null),
+    h("p", { class: "foot" }, "Readings from the tag are signed by the tag itself and can't be edited afterwards."));
+}
+
+function journey(t) {
+  const s = t.status, rows = [
+    ["Packed", "The seller has packed it", true, null],
+    ["On the way", t.dispatchedAt ? "Left the seller " + fmtTime(t.dispatchedAt) : "Not sent yet", !!t.dispatchedAt, s === "created" ? null : null],
+    ["Delivered", t.deliveredAt ? fmtTime(t.deliveredAt) : "Not delivered yet", s === "delivered", null],
+  ];
+  const nowIdx = s === "created" ? 0 : s === "in_transit" ? 1 : 2;
+  return h("ol", { class: "steps" }, rows.map(([title, sub, done], i) => h("li", { class: i < nowIdx || (i === 2 && s === "delivered") ? "done" : i === nowIdx ? "now" : "" }, h("span", { class: "dot" }, (i < nowIdx || (i === 2 && s === "delivered")) ? "✓" : i + 1), h("div", null, h("b", null, title), h("small", null, sub)))));
+}
+
+function protection(t) {
+  const p = t.protection;
+  if (!p.readingCount) return h("section", { class: "panel pad" }, h("h2", null, "Sensor"), h("p", { class: "note" }, "A sensor tag is in this parcel. It hasn't sent any readings yet."));
+  const rough = p.events > 0;
+  return h("section", { class: "panel pad" }, h("h2", null, "What the sensor saw"),
+    h("p", { class: "big-num" }, (p.peakG ?? 0).toFixed(1) + " g"),
+    h("p", { class: "note" }, "Hardest knock on the way. This parcel's limit was " + p.limitG + " g."),
+    h("p", null, rough ? "The sensor recorded " + p.events + " rough moment" + (p.events > 1 ? "s" : "") + " past the limit." : "Nothing went past the limit."),
+    h("p", { class: "note" }, p.readingCount + " signed readings, covering " + Math.round(p.coverage * 100) + "% of the trip."));
+}
+
+function reportForm() {
+  const name = h("input", { maxlength: 100, required: true, autocomplete: "name" });
+  const contact = h("input", { maxlength: 120, placeholder: "Email or phone, so the seller can reply", autocomplete: "email" });
+  const what = h("textarea", { maxlength: 2000, required: true, placeholder: "What is wrong with it?" });
+  const msg = h("p", { class: "msg", role: "status" });
+  return h("section", { class: "panel pad" }, h("h2", null, "Something wrong?"),
+    h("p", { class: "note" }, "Tell the seller what happened. They'll review it together with what the sensor recorded."),
+    h("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); try { await call("POST", "/claim", { name: name.value, contact: contact.value, statement: what.value }); await load(); } catch (err) { say(msg, err.message, true); } } },
+      h("div", null, h("label", null, "Your name"), name), h("div", null, h("label", null, "Contact (optional)"), contact), h("div", null, h("label", null, "What happened"), what),
+      h("button", { class: "btn", type: "submit" }, "Send report"), msg));
+}
+
+function claimCard(t) {
+  const c = t.claim;
+  const out = c.outcome;
+  const text = out === "refund_approved" ? ["good", "The seller approved a refund."]
+    : out === "refund_denied" ? ["bad", "The seller didn't approve a refund."]
+    : out === "other" ? ["", "The seller has closed your report."]
+    : c.status === "appealed" ? ["", "Your appeal is with the seller."]
+    : ["", "The seller is reviewing your report."];
+  const note = h("textarea", { maxlength: 1000, placeholder: "Why do you disagree?" });
+  const msg = h("p", { class: "msg", role: "status" });
+  return h("section", { class: "panel pad" }, h("h2", null, "Your report"),
+    h("div", { class: "outcome " + text[0] }, h("p", null, h("b", null, text[1])),
+      h("p", { class: "note" }, "Sent " + fmtTime(c.filedAt) + (c.decidedAt ? ". Decided " + fmtTime(c.decidedAt) : ""))),
+    c.verifyUrl ? h("p", null, h("a", { href: c.verifyUrl, target: "_blank", rel: "noopener" }, "See the evidence check")) : null,
+    c.canAppeal && out ? h("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); try { await call("POST", "/appeal", { note: note.value }); await load(); } catch (err) { say(msg, err.message, true); } } },
+      h("h2", null, "Disagree?"), h("p", { class: "note" }, "You can appeal until " + fmtTime(c.appealUntil) + "."), note, h("button", { class: "btn ghost", type: "submit" }, "Appeal"), msg) : null);
+}
+
+load().catch((e) => root.replaceChildren(head("ShipProof"), h("section", { class: "panel pad" }, h("p", { class: "msg err" }, e.message))));
+</script></body></html>
