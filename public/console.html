@@ -90,14 +90,19 @@ function parcelsView() {
   const ref = h("input", { placeholder: "Order reference", maxlength: 80, required: true });
   const tag = h("select", null, D.tags.map((t) => h("option", { value: t.deviceId }, t.label)));
   const prof = h("select", null, profiles.map((p) => h("option", { value: p.name }, p.label + " - " + p.description)));
+  const shock = h("input", { type: "number", step: "0.1", min: "1.1", max: "10", placeholder: "Profile default" });
+  const tilt = h("input", { type: "number", step: "5", min: "10", max: "180", placeholder: "Profile default" });
   const act = (p, step, text) => h("button", { class: "btn sm", onclick: async (e) => { e.target.disabled = true; try { await api("POST", "/parcels/" + p.id + "/" + step, {}); toast(step === "dispatch" ? "Dispatched. Readings now count." : "Delivered. The window is closed.", "ok"); await load(); } catch (err) { toast(err.message, "bad"); e.target.disabled = false; } } }, text);
   const buyerLink = (p) => h("button", { class: "btn sm ghost", title: "Copy the link to send the buyer", onclick: async () => { const url = location.origin + "/track/" + p.id; try { await navigator.clipboard.writeText(url); toast("Buyer link copied", "ok"); } catch { prompt("Copy this link for the buyer", url); } } }, "Buyer link");
   const replay = (p) => h("a", { class: "btn sm ghost", href: "/replay?src=" + encodeURIComponent("/api/parcels/" + p.id + "/readings") + "&title=" + encodeURIComponent(p.orderRef) + "&limit=" + p.limits.shockG }, "Replay");
   return h("div", { class: "stack" }, h("h1", { class: "title" }, "Parcels"),
     h("section", { class: "panel pad" }, h("h2", null, "New parcel"),
-      D.tags.length ? h("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); try { await api("POST", "/parcels", { orderRef: ref.value.trim(), deviceId: tag.value, profile: prof.value }); toast("Parcel created", "ok"); await load(); } catch (err) { say(msg, err.message, true); } } },
+      D.tags.length ? h("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); try { const overrides = {}; if (shock.value) overrides.shockG = Number(shock.value); if (tilt.value) overrides.maxTiltDeg = Number(tilt.value);
+await api("POST", "/parcels", { orderRef: ref.value.trim(), deviceId: tag.value, profile: prof.value, overrides }); toast("Parcel created", "ok"); await load(); } catch (err) { say(msg, err.message, true); } } },
         h("div", { class: "two" }, h("div", null, h("label", null, "Order reference"), ref), h("div", null, h("label", null, "Tag inside the parcel"), tag)),
-        h("div", null, h("label", null, "Handling profile"), prof), h("button", { class: "btn sm", type: "submit" }, "Create parcel"), msg)
+        h("div", null, h("label", null, "Handling profile"), prof),
+        h("details", null, h("summary", null, "Set limits for this product"), h("div", { class: "two" }, h("div", null, h("label", null, "Impact limit (g)"), shock), h("div", null, h("label", null, "Tilt limit (degrees, 180 turns it off)"), tilt))),
+        h("button", { class: "btn sm", type: "submit" }, "Create parcel"), msg)
         : h("div", null, h("p", { class: "empty" }, "You need a tag first."), h("div", { class: "row" }, h("a", { class: "btn sm", href: "/dock" }, "Set up a hardware tag"), h("button", { class: "btn sm ghost", onclick: () => openPairing() }, "Demo with a phone")))),
     h("section", { class: "panel pad" }, h("h2", null, "All parcels"),
       D.parcels.length ? h("table", { class: "tbl" }, h("tr", null, h("th", null, "Order"), h("th", null, "Profile"), h("th", null, "Status"), h("th", null, "")),

@@ -461,3 +461,15 @@ test("a claim the company denies without a model verdict can still be appealed, 
   setNow(T0 + 1000 + 49 * 3600);
   assert.equal((await call(ctx, "POST", `/api/track/${id}/appeal`, { note: "late" })).status, 409);
 });
+
+import { checkVerdict } from "../lib/investigator.ts";
+import { buildEvidence } from "../lib/evidence.ts";
+
+test("a quiet record cannot give a high-confidence denial, and must list sensor limits", () => {
+  const ev = buildEvidence({ parcelId: "p", deviceId: "d", profile: "standard", limits: { shockG: 2.5, freeFallG: 0.3, maxTiltDeg: 100 }, dispatchedAt: 0, deliveredAt: 100, readings: [], nowSeconds: 200 });
+  const ok = { outcome: "does_not_support_claim" as const, confidence: "medium" as const, summary: "x", findings: [], limits: ["range"], recommendedAction: "deny_refund" as const };
+  const evFull = { ...ev, coverage: 1 };
+  assert.deepEqual(checkVerdict(ok, evFull), []);
+  assert.equal(checkVerdict({ ...ok, confidence: "high" }, evFull).length, 1);
+  assert.equal(checkVerdict({ ...ok, limits: [] }, evFull).length, 1);
+});

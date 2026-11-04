@@ -12,6 +12,13 @@ const MAX_EVENTS = 50;
 const MAX_GAPS = 20;
 const BUCKETS = 48;
 
+/**
+ * What a tag can and cannot see. Handling limits are about rough handling, not breakage:
+ * a hard knock that breaks something lasts milliseconds and can exceed this range, and
+ * a tag only reports one reading per window. The investigator is told this.
+ */
+export const SENSOR = { rangeG: 8, note: "Accelerometer range is about +-8 g and each reading is the strongest sample of a few seconds. Short, hard impacts, crushing and punctures can happen without any event being recorded." } as const;
+
 /** A sound level at or above this (0-100 scale) counts as a loud event. */
 export const SOUND_LOUD = 60;
 
