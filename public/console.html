@@ -52,6 +52,17 @@ function steps() {
   ];
 }
 
+function money() {
+  const sum = (f) => D.claims.filter(f).reduce((a, c) => a + (c.orderValue || 0), 0);
+  const fmt = (n) => n.toLocaleString();
+  const withValue = D.claims.filter((c) => c.orderValue).length;
+  if (!D.claims.length) return null;
+  const stat = (n, label) => h("div", { class: "stat" }, h("strong", null, fmt(n)), h("span", null, label));
+  return h("section", { class: "panel pad" }, h("h2", null, "Money in disputes"),
+    h("div", { class: "stats" }, stat(sum((c) => c.resolution !== "refund_approved" && c.resolution !== "refund_denied"), "still undecided"), stat(sum((c) => c.resolution === "refund_approved"), "refunds approved"), stat(sum((c) => c.resolution === "refund_denied"), "refunds denied")),
+    h("p", { class: "note" }, "Totals use the order values you enter when creating a parcel, in your own currency. " + withValue + " of " + D.claims.length + " claims have a value."));
+}
+
 function overview() {
   const s = steps(), cur = s.findIndex((x) => !x.done);
   const stat = (n, label) => h("div", { class: "stat" }, h("strong", null, n), h("span", null, label));
@@ -61,6 +72,7 @@ function overview() {
     cur === -1 ? h("section", { class: "panel pad hero" }, h("h2", null, "You've been through the whole flow"), h("p", null, "Every claim now has sensor evidence, a verdict and a sealed record."))
       : h("section", { class: "panel pad hero" }, h("h2", null, "Next step"), h("p", { class: "big" }, s[cur].t), h("p", null, s[cur].d), h("div", { class: "row" }, h("button", { class: "btn", onclick: s[cur].go }, s[cur].cta), s[cur].alt ? h("button", { class: "btn ghost", onclick: s[cur].alt[1] }, s[cur].alt[0]) : null)),
     h("div", { class: "stats" }, stat(D.tags.length, "tags"), stat(D.parcels.length, "parcels"), stat(active, "open claims")),
+    money(),
     h("section", { class: "panel pad" }, h("h2", null, "The path"), h("ol", { class: "path" }, s.map((x, i) => h("li", { class: x.done ? "done" : i === cur ? "now" : "" }, h("span", { class: "dot" }, x.done ? "✓" : i + 1), h("div", null, h("b", null, x.t), h("small", null, x.d))))))
   );
 }
@@ -92,15 +104,16 @@ function parcelsView() {
   const prof = h("select", null, profiles.map((p) => h("option", { value: p.name }, p.label + " - " + p.description)));
   const shock = h("input", { type: "number", step: "0.1", min: "1.1", max: "10", placeholder: "Profile default" });
   const tilt = h("input", { type: "number", step: "5", min: "10", max: "180", placeholder: "Profile default" });
+  const value = h("input", { type: "number", step: "1", min: "1", max: "10000000", placeholder: "Optional, whole number" });
   const act = (p, step, text) => h("button", { class: "btn sm", onclick: async (e) => { e.target.disabled = true; try { await api("POST", "/parcels/" + p.id + "/" + step, {}); toast(step === "dispatch" ? "Dispatched. Readings now count." : "Delivered. The window is closed.", "ok"); await load(); } catch (err) { toast(err.message, "bad"); e.target.disabled = false; } } }, text);
   const buyerLink = (p) => h("button", { class: "btn sm ghost", title: "Copy the link to send the buyer", onclick: async () => { const url = location.origin + "/track/" + p.id; try { await navigator.clipboard.writeText(url); toast("Buyer link copied", "ok"); } catch { prompt("Copy this link for the buyer", url); } } }, "Buyer link");
   const replay = (p) => h("a", { class: "btn sm ghost", href: "/replay?src=" + encodeURIComponent("/api/parcels/" + p.id + "/readings") + "&title=" + encodeURIComponent(p.orderRef) + "&limit=" + p.limits.shockG }, "Replay");
   return h("div", { class: "stack" }, h("h1", { class: "title" }, "Parcels"),
     h("section", { class: "panel pad" }, h("h2", null, "New parcel"),
       D.tags.length ? h("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); try { const overrides = {}; if (shock.value) overrides.shockG = Number(shock.value); if (tilt.value) overrides.maxTiltDeg = Number(tilt.value);
-await api("POST", "/parcels", { orderRef: ref.value.trim(), deviceId: tag.value, profile: prof.value, overrides }); toast("Parcel created", "ok"); await load(); } catch (err) { say(msg, err.message, true); } } },
+await api("POST", "/parcels", { orderRef: ref.value.trim(), deviceId: tag.value, profile: prof.value, overrides, ...(value.value ? { orderValue: Number(value.value) } : {}) }); toast("Parcel created", "ok"); await load(); } catch (err) { say(msg, err.message, true); } } },
         h("div", { class: "two" }, h("div", null, h("label", null, "Order reference"), ref), h("div", null, h("label", null, "Tag inside the parcel"), tag)),
-        h("div", null, h("label", null, "Handling profile"), prof),
+        h("div", null, h("label", null, "Handling profile"), prof), h("div", null, h("label", null, "Order value (your currency)"), value),
         h("details", null, h("summary", null, "Set limits for this product"), h("div", { class: "two" }, h("div", null, h("label", null, "Impact limit (g)"), shock), h("div", null, h("label", null, "Tilt limit (degrees, 180 turns it off)"), tilt))),
         h("button", { class: "btn sm", type: "submit" }, "Create parcel"), msg)
         : h("div", null, h("p", { class: "empty" }, "You need a tag first."), h("div", { class: "row" }, h("a", { class: "btn sm", href: "/dock" }, "Set up a hardware tag"), h("button", { class: "btn sm ghost", onclick: () => openPairing() }, "Demo with a phone")))),

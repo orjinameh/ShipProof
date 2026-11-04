@@ -493,3 +493,22 @@ test("evidence: a measured fall gives a drop height; a 1 cm jitter is ignored", 
   assert.equal(falls.length, 1);
   assert.equal(falls[0].dropCm, 123);
 });
+
+test("order value is validated and shows in the claims list with its resolution", async () => {
+  const { ctx, setNow } = setup();
+  const cookie = await signup(ctx);
+  const tag = await makeTag(ctx);
+  await call(ctx, "POST", "/api/org/tags", { deviceId: tag.deviceId }, cookie);
+  assert.equal((await call(ctx, "POST", "/api/parcels", { orderRef: "V1", deviceId: tag.deviceId, profile: "standard", orderValue: 12.5 }, cookie)).status, 400);
+  const p = await call(ctx, "POST", "/api/parcels", { orderRef: "V1", deviceId: tag.deviceId, profile: "standard", orderValue: 4500 }, cookie);
+  assert.equal(p.status, 201);
+  const id = p.json.parcel.id;
+  setNow(T0); await call(ctx, "POST", `/api/parcels/${id}/dispatch`, {}, cookie);
+  setNow(T0 + 1000); await call(ctx, "POST", `/api/parcels/${id}/delivered`, {}, cookie);
+  await buyerClaim(ctx, id, cookie, "broken");
+  let row = (await call(ctx, "GET", "/api/claims", undefined, cookie)).json.claims[0];
+  assert.deepEqual([row.orderValue, row.resolution], [4500, null]);
+  await call(ctx, "POST", `/api/claims/${row.id}/close`, { resolution: "refund_denied" }, cookie);
+  row = (await call(ctx, "GET", "/api/claims", undefined, cookie)).json.claims[0];
+  assert.equal(row.resolution, "refund_denied");
+});

@@ -31,6 +31,8 @@ export interface Parcel {
   deviceId: string;
   profile: ProfileName;
   overrides?: Overrides;
+  /** What the seller entered for the order, in their own currency (whole units). Used for the overview totals only. */
+  orderValue?: number;
   status: ParcelStatus;
   createdAt: number;
   /** Start of the custody window. Readings before this are not evidence. */

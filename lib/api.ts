@@ -402,6 +402,11 @@ async function createParcel(req: Request, ctx: ApiContext, auth: Auth, nowS: num
   if (!isProfileName(b.profile)) return fail(400, "bad_profile", "Choose a handling profile: fragile, standard or rugged.");
   const overrides = parseOverrides(b.overrides);
   if (typeof overrides === "string") return fail(400, "bad_overrides", overrides);
+  let orderValue: number | undefined;
+  if (b.orderValue !== undefined && b.orderValue !== null && b.orderValue !== "") {
+    if (typeof b.orderValue !== "number" || !Number.isInteger(b.orderValue) || b.orderValue < 1 || b.orderValue > 10_000_000) return fail(400, "bad_order_value", "Order value must be a whole number from 1 to 10,000,000.");
+    orderValue = b.orderValue;
+  }
   const tag = await ctx.store.getTag(b.deviceId);
   if (!tag || tag.orgId !== auth.org.id) return fail(404, "unknown_tag", "That tag isn't one of yours. Add it under Tags first.");
 
@@ -412,6 +417,7 @@ async function createParcel(req: Request, ctx: ApiContext, auth: Auth, nowS: num
     deviceId: tag.deviceId,
     profile: b.profile,
     ...(Object.keys(overrides).length ? { overrides } : {}),
+    ...(orderValue !== undefined ? { orderValue } : {}),
     status: "created",
     createdAt: nowS,
   };
@@ -472,6 +478,8 @@ async function listClaims(ctx: ApiContext, auth: Auth): Promise<Response> {
       claimant: c.claimant,
       filedAt: c.filedAt,
       source: c.source ?? "company",
+      orderValue: byId.get(c.parcelId)?.orderValue ?? null,
+      resolution: c.resolution?.outcome ?? null,
       status: c.status,
       outcome: c.decision?.verdict.outcome ?? null,
     })),
