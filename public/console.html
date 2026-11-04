@@ -46,7 +46,7 @@ function steps() {
     { t: "Create a parcel", d: "Pick the tag and a handling profile that matches what you ship.", done: hasParcel, go: () => (location.hash = "parcels"), cta: "New parcel" },
     { t: "Dispatch it", d: "Readings count as evidence only from this moment.", done: moving || delivered, go: () => (location.hash = "parcels"), cta: "Open parcels" },
     { t: "Mark it delivered", d: "This closes the custody window.", done: delivered, go: () => (location.hash = "parcels"), cta: "Open parcels" },
-    { t: "File a claim", d: "Record what the buyer says happened.", done: hasClaim, go: () => (location.hash = "parcels"), cta: "Open parcels" },
+    { t: "Buyer reports a problem", d: "Send the buyer link from Parcels. Only the buyer can report, after delivery.", done: hasClaim, go: () => (location.hash = "parcels"), cta: "Open parcels" },
     { t: "Run the investigator", d: "SERV Reasoning reads the sensor evidence and recommends an action.", done: decided, go: () => (location.hash = "claims"), cta: "Open claims" },
     { t: "Make your decision", d: "The recommendation is advice. You decide and the record is sealed.", done: closed, go: () => (location.hash = "claims"), cta: "Open claims" },
   ];

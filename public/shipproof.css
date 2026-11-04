@@ -85,7 +85,7 @@ a { color: var(--seal); }
   .col { display: contents; }
   .stage { order: 1; } .chart-panel { order: 2; } .readings-panel { order: 3; } .route-panel { order: 4; }
 }
-@media (max-width: 640px) { .app { padding: 14px; } .readouts > div { padding: 12px 10px 10px; } }
+@media (max-width: 640px) { .app { padding: 14px; } .readouts > div { padding: 12px 10px 10px; } .readouts .num { font-size: clamp(.85rem, 3.8vw, 1.3rem); } }
 
 .stage { position: relative; overflow: hidden; padding: 0; background:
   radial-gradient(60% 50% at 50% 38%, var(--stage-glow) 0%, transparent 70%), var(--panel); }
@@ -291,11 +291,12 @@ dialog[open]{animation:pop .18s ease-out}
 .toast.ok{border-left-color:var(--good)}.toast.bad{border-left-color:var(--shock)}.toast.out{opacity:0}
 ::view-transition-old(root),::view-transition-new(root){animation-duration:.18s}
 @media(max-width:820px){
-  .frame{grid-template-columns:1fr}
+  .frame{grid-template-columns:minmax(0,1fr)}.frame>*{min-width:0}
   .side{position:static;height:auto;flex-direction:row;flex-wrap:wrap;align-items:center;padding:10px 12px;gap:8px;border-right:0;border-bottom:1px solid var(--line)}
   .side nav{display:flex;overflow-x:auto;gap:2px;order:3;width:100%}.side nav a{padding:8px 10px;white-space:nowrap}
   .side-foot{margin:0 0 0 auto;display:flex;align-items:center}.kbd-btn{display:none}
-  .stats{grid-template-columns:repeat(3,1fr)}
+  .stats{grid-template-columns:repeat(3,minmax(0,1fr))}.stat{padding:12px}.stat strong{font-size:clamp(1.3rem,7vw,2rem);overflow-wrap:anywhere}
+  .panel:has(.tbl){overflow-x:auto}.tbl{min-width:420px}.tbl td,.tbl th{white-space:nowrap}
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 body.embed .top{display:none}
@@ -325,3 +326,4 @@ body.embed{background:transparent}
 .btn[aria-pressed="true"]{color:var(--seal)}
 .btn.primary{color:var(--on-kraft)}
 .arm.live{color:#fff}
+.dock-log{margin:0;max-height:220px;overflow:auto;background:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px;white-space:pre-wrap;color:var(--muted)}
