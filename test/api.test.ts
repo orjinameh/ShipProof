@@ -473,3 +473,23 @@ test("a quiet record cannot give a high-confidence denial, and must list sensor 
   assert.equal(checkVerdict({ ...ok, confidence: "high" }, evFull).length, 1);
   assert.equal(checkVerdict({ ...ok, limits: [] }, evFull).length, 1);
 });
+
+import { parseReading, canonicalString } from "../lib/reading.ts";
+test("v2 readings: snd and ff are optional, bounded and part of the signed string; v1 rejects them", () => {
+  const base = { deviceId: "d", parcelId: "p", ts: 5, ax: 0, ay: 0, az: 1000, shock: 0, sig: "x" };
+  assert.equal(parseReading({ v: 2, ...base }).ok, true);
+  assert.equal(parseReading({ v: 2, ...base, snd: 101 }).ok, false);
+  assert.equal(parseReading({ v: 2, ...base, ff: 60001 }).ok, false);
+  assert.equal(parseReading({ v: 1, ...base, ff: 10 }).ok, false);
+  assert.equal(canonicalString({ v: 2, ...base }), "v2|d|p|5|0|0|1000|0|||" + "|");
+  assert.equal(canonicalString({ v: 2, ...base, snd: 7, ff: 480 }), "v2|d|p|5|0|0|1000|0|||7|480");
+});
+
+test("evidence: a measured fall gives a drop height; a 1 cm jitter is ignored", () => {
+  const L = { shockG: 2.5, freeFallG: 0.3, maxTiltDeg: 100 };
+  const rd = (ts: number, ff: number) => ({ v: 2 as const, deviceId: "d", parcelId: "p", ts, ax: 0, ay: 0, az: 50, shock: 0 as const, ff, sig: "s" });
+  const ev = buildEvidence({ parcelId: "p", deviceId: "d", profile: "standard", limits: L, dispatchedAt: 0, deliveredAt: 100, readings: [rd(10, 500), rd(50, 20)], nowSeconds: 200 });
+  const falls = ev.events.filter((e) => e.kind === "free_fall");
+  assert.equal(falls.length, 1);
+  assert.equal(falls[0].dropCm, 123);
+});

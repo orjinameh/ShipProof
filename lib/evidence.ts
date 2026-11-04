@@ -19,6 +19,11 @@ const BUCKETS = 48;
  */
 export const SENSOR = { rangeG: 8, note: "Accelerometer range is about +-8 g and each reading is the strongest sample of a few seconds. Short, hard impacts, crushing and punctures can happen without any event being recorded." } as const;
 
+/** A measured free fall shorter than this is sensor jitter, not a drop (50 ms is about 1 cm). */
+export const MIN_FALL_MS = 50;
+/** Drop height in centimetres from fall time in milliseconds. */
+export const dropCmFor = (ms: number) => Math.round(0.5 * 9.81 * (ms / 1000) ** 2 * 100);
+
 /** A sound level at or above this (0-100 scale) counts as a loud event. */
 export const SOUND_LOUD = 60;
 
@@ -31,6 +36,10 @@ export interface EvidenceEvent {
   /** impact: highest force in g. free_fall: lowest force in g. tilt: largest angle in degrees. loud: highest sound level, 0-100. */
   peak: number;
   samples: number;
+  /** free_fall only, when the tag measures it: the longest unbroken fall in milliseconds. */
+  fallMs?: number;
+  /** free_fall only: drop height in centimetres estimated from fallMs (h = g t^2 / 2, no air drag). */
+  dropCm?: number;
   /** impact only: a loud sound was recorded within a few seconds of it. */
   withSound?: boolean;
 }
@@ -100,7 +109,7 @@ function findEvents(readings: Reading[], limits: Limits): { events: EvidenceEven
       const tilt = tiltDeg(r);
       let value: number | undefined;
       if (kind === "impact" && g >= limits.shockG) value = g;
-      else if (kind === "free_fall" && g <= limits.freeFallG) value = g;
+      else if (kind === "free_fall" && g <= limits.freeFallG && (r.ff === undefined || r.ff >= MIN_FALL_MS)) value = g;
       else if (kind === "tilt" && limits.maxTiltDeg < 180 && tilt !== null && tilt > limits.maxTiltDeg) value = tilt;
       else if (kind === "loud" && r.snd !== undefined && r.snd >= SOUND_LOUD) value = r.snd;
       if (value === undefined) continue;
@@ -108,8 +117,10 @@ function findEvents(readings: Reading[], limits: Limits): { events: EvidenceEven
         open.endTs = r.ts;
         open.samples++;
         open.peak = kind === "free_fall" ? Math.min(open.peak, value) : Math.max(open.peak, value);
+        if (kind === "free_fall" && r.ff !== undefined) open.fallMs = Math.max(open.fallMs ?? 0, r.ff);
       } else {
         open = { kind, startTs: r.ts, endTs: r.ts, peak: value, samples: 1 };
+        if (kind === "free_fall" && r.ff !== undefined) open.fallMs = r.ff;
         all.push(open);
       }
     }
@@ -118,7 +129,7 @@ function findEvents(readings: Reading[], limits: Limits): { events: EvidenceEven
   const loud = all.filter((e) => e.kind === "loud");
   for (const e of all) if (e.kind === "impact") e.withSound = loud.some((l) => l.startTs <= e.endTs + EVENT_MERGE_SECONDS && l.endTs >= e.startTs - EVENT_MERGE_SECONDS);
   all.sort((a, b) => a.startTs - b.startTs || a.kind.localeCompare(b.kind));
-  const round = (e: EvidenceEvent): EvidenceEvent => ({ ...e, peak: Math.round(e.peak * 100) / 100 });
+  const round = (e: EvidenceEvent): EvidenceEvent => ({ ...e, peak: Math.round(e.peak * 100) / 100, ...(e.fallMs !== undefined ? { dropCm: dropCmFor(e.fallMs) } : {}) });
   return { events: all.slice(0, MAX_EVENTS).map(round), truncated: all.length > MAX_EVENTS };
 }
 

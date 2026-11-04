@@ -1,5 +1,5 @@
 /**
- * ShipProof reading format, version 1.
+ * ShipProof reading format, versions 1 and 2.
  *
  * Every device (phone page, ESP32 tag, anything else) sends this same record.
  * All numbers are integers so the signed bytes are identical on every platform
@@ -13,15 +13,18 @@
  *   shock    0 or 1 (device-detected shock event)
  *   latE6    optional latitude  in micro-degrees (integer)
  *   lonE6    optional longitude in micro-degrees (integer)
- *   snd      version 2 only: loudest sound level since the previous reading, an integer 0-100.
+ *   snd      version 2 only, optional: loudest sound level since the previous reading, an integer 0-100.
  *            A level only, never audio: the tag does not record sound.
+ *   ff       version 2 only, optional: longest unbroken free fall since the previous reading, in
+ *            milliseconds (integer 0-60000). Lets the server estimate a drop height.
  *   sig      base64 of the 64-byte ECDSA P-256 signature (r || s) over SHA-256
  *            of the canonical string below
  *
  * Canonical string (UTF-8, no trailing newline), fields joined by "|":
  *   v1|deviceId|parcelId|ts|ax|ay|az|shock|latE6|lonE6
  * A missing latE6 / lonE6 is written as an empty string, e.g. "...|0||".
- * Version 2 uses "v2" and appends |snd:  v2|deviceId|parcelId|ts|ax|ay|az|shock|latE6|lonE6|snd
+ * Version 2 uses "v2" and appends |snd|ff:  v2|deviceId|parcelId|ts|ax|ay|az|shock|latE6|lonE6|snd|ff
+ * A missing snd or ff is written as an empty string, e.g. "...|||" when both are absent.
  */
 
 export interface Reading {
@@ -36,6 +39,7 @@ export interface Reading {
   latE6?: number;
   lonE6?: number;
   snd?: number;
+  ff?: number;
   sig: string;
 }
 
@@ -85,9 +89,10 @@ export function parseReading(input: unknown): ParseResult {
     }
   }
   if (r.v === 2) {
-    if (!isInt(r.snd) || r.snd < 0 || r.snd > 100) return { ok: false, error: "invalid snd" };
-  } else if (r.snd !== undefined) {
-    return { ok: false, error: "snd needs version 2" };
+    if (r.snd !== undefined && (!isInt(r.snd) || r.snd < 0 || r.snd > 100)) return { ok: false, error: "invalid snd" };
+    if (r.ff !== undefined && (!isInt(r.ff) || r.ff < 0 || r.ff > 60000)) return { ok: false, error: "invalid ff" };
+  } else if (r.snd !== undefined || r.ff !== undefined) {
+    return { ok: false, error: "snd and ff need version 2" };
   }
   if (typeof r.sig !== "string" || r.sig.length === 0 || r.sig.length > 200) {
     return { ok: false, error: "invalid sig" };
@@ -104,7 +109,8 @@ export function parseReading(input: unknown): ParseResult {
     shock: r.shock,
     sig: r.sig,
   };
-  if (r.v === 2) reading.snd = r.snd as number;
+  if (r.v === 2 && r.snd !== undefined) reading.snd = r.snd as number;
+  if (r.v === 2 && r.ff !== undefined) reading.ff = r.ff as number;
   if (hasLat) {
     reading.latE6 = r.latE6 as number;
     reading.lonE6 = r.lonE6 as number;
@@ -125,6 +131,6 @@ export function canonicalString(r: Omit<Reading, "sig">): string {
     r.shock,
     r.latE6 ?? "",
     r.lonE6 ?? "",
-    ...(r.v === 2 ? [r.snd ?? 0] : []),
+    ...(r.v === 2 ? [r.snd ?? "", r.ff ?? ""] : []),
   ].join("|");
 }
