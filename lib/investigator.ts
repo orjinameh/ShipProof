@@ -386,6 +386,11 @@ export async function investigate(input: InvestigationInput): Promise<Decision> 
     throw new InvestigatorError("invalid_output", `The investigator's answer didn't match the evidence: ${problems.join("; ")}.`);
   }
 
+  // Keep only limits written as sentences (a live run returned bare fragments like "shockG 4"), and always
+  // state the sensor's blind spots ourselves so the record never depends on the model remembering to.
+  const sentences = verdict.limits.filter((l) => l.trim().split(/\s+/).length >= 4);
+  verdict = { ...verdict, limits: [...sentences, SENSOR.note] };
+
   return finish(input, verdict, "serv-reasoning", {
     model: input.config.model,
     servResponseId: reply.id,
