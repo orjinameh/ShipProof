@@ -13,16 +13,19 @@
  *   shock    0 or 1 (device-detected shock event)
  *   latE6    optional latitude  in micro-degrees (integer)
  *   lonE6    optional longitude in micro-degrees (integer)
+ *   snd      version 2 only: loudest sound level since the previous reading, an integer 0-100.
+ *            A level only, never audio: the tag does not record sound.
  *   sig      base64 of the 64-byte ECDSA P-256 signature (r || s) over SHA-256
  *            of the canonical string below
  *
  * Canonical string (UTF-8, no trailing newline), fields joined by "|":
  *   v1|deviceId|parcelId|ts|ax|ay|az|shock|latE6|lonE6
  * A missing latE6 / lonE6 is written as an empty string, e.g. "...|0||".
+ * Version 2 uses "v2" and appends |snd:  v2|deviceId|parcelId|ts|ax|ay|az|shock|latE6|lonE6|snd
  */
 
 export interface Reading {
-  v: 1;
+  v: 1 | 2;
   deviceId: string;
   parcelId: string;
   ts: number;
@@ -32,6 +35,7 @@ export interface Reading {
   shock: 0 | 1;
   latE6?: number;
   lonE6?: number;
+  snd?: number;
   sig: string;
 }
 
@@ -51,7 +55,7 @@ export function parseReading(input: unknown): ParseResult {
     return { ok: false, error: "reading must be an object" };
   }
   const r = input as Record<string, unknown>;
-  if (r.v !== 1) return { ok: false, error: "unsupported version" };
+  if (r.v !== 1 && r.v !== 2) return { ok: false, error: "unsupported version" };
   if (typeof r.deviceId !== "string" || !ID_RE.test(r.deviceId)) {
     return { ok: false, error: "invalid deviceId" };
   }
@@ -80,12 +84,17 @@ export function parseReading(input: unknown): ParseResult {
       return { ok: false, error: "invalid lonE6" };
     }
   }
+  if (r.v === 2) {
+    if (!isInt(r.snd) || r.snd < 0 || r.snd > 100) return { ok: false, error: "invalid snd" };
+  } else if (r.snd !== undefined) {
+    return { ok: false, error: "snd needs version 2" };
+  }
   if (typeof r.sig !== "string" || r.sig.length === 0 || r.sig.length > 200) {
     return { ok: false, error: "invalid sig" };
   }
 
   const reading: Reading = {
-    v: 1,
+    v: r.v,
     deviceId: r.deviceId,
     parcelId: r.parcelId,
     ts: r.ts,
@@ -95,6 +104,7 @@ export function parseReading(input: unknown): ParseResult {
     shock: r.shock,
     sig: r.sig,
   };
+  if (r.v === 2) reading.snd = r.snd as number;
   if (hasLat) {
     reading.latE6 = r.latE6 as number;
     reading.lonE6 = r.lonE6 as number;
@@ -105,7 +115,7 @@ export function parseReading(input: unknown): ParseResult {
 /** The exact string that devices sign. Must match firmware byte for byte. */
 export function canonicalString(r: Omit<Reading, "sig">): string {
   return [
-    "v1",
+    r.v === 2 ? "v2" : "v1",
     r.deviceId,
     r.parcelId,
     r.ts,
@@ -115,5 +125,6 @@ export function canonicalString(r: Omit<Reading, "sig">): string {
     r.shock,
     r.latE6 ?? "",
     r.lonE6 ?? "",
+    ...(r.v === 2 ? [r.snd ?? 0] : []),
   ].join("|");
 }

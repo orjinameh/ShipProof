@@ -12,15 +12,20 @@ const MAX_EVENTS = 50;
 const MAX_GAPS = 20;
 const BUCKETS = 48;
 
-export type EventKind = "impact" | "free_fall" | "tilt";
+/** A sound level at or above this (0-100 scale) counts as a loud event. */
+export const SOUND_LOUD = 60;
+
+export type EventKind = "impact" | "free_fall" | "tilt" | "loud";
 
 export interface EvidenceEvent {
   kind: EventKind;
   startTs: number;
   endTs: number;
-  /** impact: highest force in g. free_fall: lowest force in g. tilt: largest angle in degrees. */
+  /** impact: highest force in g. free_fall: lowest force in g. tilt: largest angle in degrees. loud: highest sound level, 0-100. */
   peak: number;
   samples: number;
+  /** impact only: a loud sound was recorded within a few seconds of it. */
+  withSound?: boolean;
 }
 
 export interface Gap {
@@ -40,6 +45,8 @@ export interface Evidence {
   lastTs: number | null;
   peakG: number | null;
   peakTs: number | null;
+  /** Loudest sound level, 0-100, or null when the tag has no microphone. Levels only, never audio. */
+  peakSound: number | null;
   gaps: Gap[];
   gapSeconds: number;
   /** Share of the window not lost to gaps, 0 to 1. */
@@ -77,7 +84,7 @@ export function tiltDeg(r: Pick<Reading, "ax" | "ay" | "az">): number | null {
 }
 
 function findEvents(readings: Reading[], limits: Limits): { events: EvidenceEvent[]; truncated: boolean } {
-  const kinds: EventKind[] = ["impact", "free_fall", "tilt"];
+  const kinds: EventKind[] = ["impact", "free_fall", "tilt", "loud"];
   const all: EvidenceEvent[] = [];
   for (const kind of kinds) {
     let open: EvidenceEvent | undefined;
@@ -88,6 +95,7 @@ function findEvents(readings: Reading[], limits: Limits): { events: EvidenceEven
       if (kind === "impact" && g >= limits.shockG) value = g;
       else if (kind === "free_fall" && g <= limits.freeFallG) value = g;
       else if (kind === "tilt" && limits.maxTiltDeg < 180 && tilt !== null && tilt > limits.maxTiltDeg) value = tilt;
+      else if (kind === "loud" && r.snd !== undefined && r.snd >= SOUND_LOUD) value = r.snd;
       if (value === undefined) continue;
       if (open && r.ts - open.endTs <= EVENT_MERGE_SECONDS) {
         open.endTs = r.ts;
@@ -99,6 +107,9 @@ function findEvents(readings: Reading[], limits: Limits): { events: EvidenceEven
       }
     }
   }
+  // an impact with a loud sound at the same moment is stronger evidence than either alone
+  const loud = all.filter((e) => e.kind === "loud");
+  for (const e of all) if (e.kind === "impact") e.withSound = loud.some((l) => l.startTs <= e.endTs + EVENT_MERGE_SECONDS && l.endTs >= e.startTs - EVENT_MERGE_SECONDS);
   all.sort((a, b) => a.startTs - b.startTs || a.kind.localeCompare(b.kind));
   const round = (e: EvidenceEvent): EvidenceEvent => ({ ...e, peak: Math.round(e.peak * 100) / 100 });
   return { events: all.slice(0, MAX_EVENTS).map(round), truncated: all.length > MAX_EVENTS };
@@ -177,6 +188,7 @@ export function buildEvidence(input: EvidenceInput): Evidence {
     firstTs: inWindow[0]?.ts ?? null,
     lastTs: inWindow[inWindow.length - 1]?.ts ?? null,
     peakG: peakG === null ? null : r2(peakG),
+    peakSound: inWindow.some((r) => r.snd !== undefined) ? Math.max(...inWindow.map((r) => r.snd ?? 0)) : null,
     peakTs,
     gaps: gaps.sort((a, b) => b.seconds - a.seconds).slice(0, MAX_GAPS).sort((a, b) => a.fromTs - b.fromTs),
     gapSeconds,

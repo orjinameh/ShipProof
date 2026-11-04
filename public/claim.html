@@ -12,8 +12,8 @@ const root = document.getElementById("root");
 const id = location.pathname.split("/").filter(Boolean).pop();
 const titles = { supports_claim: "Evidence supports the claim", does_not_support_claim: "Evidence does not support the claim", inconclusive: "Evidence is inconclusive" };
 const actions = { approve_refund: "Approve refund", deny_refund: "Deny refund", request_more_info: "Request more information", manual_review: "Send to manual review" };
-const kindText = { impact: "Impact", free_fall: "Free fall", tilt: "Tilted past limit" };
-const unit = { impact: "g", free_fall: "g", tilt: "°" };
+const kindText = { impact: "Impact", free_fall: "Free fall", tilt: "Tilted past limit", loud: "Loud sound" };
+const unit = { impact: "g", free_fall: "g", tilt: "°", loud: "/100" };
 let me, main;
 const stampText = { supports_claim: "Damage supported", does_not_support_claim: "Not supported", inconclusive: "Inconclusive" };
 
@@ -59,7 +59,8 @@ function evidencePanel(ev, parcel) {
     h("div", { class: "bars", role: "img", "aria-label": "Peak force over the delivery window" }, ev.buckets.map((b) => h("i", { class: b.maxG > parcel.limits.shockG ? "hot" : "", style: "height:" + Math.max(2, (b.maxG / peak) * 100) + "%", title: fmtTime(b.startTs) + ": " + b.maxG + " g" }))),
     h("p", { class: "note" }, "Red bars exceeded this parcel's impact limit."),
     ev.events.length ? h("table", { class: "tbl" }, h("tr", null, h("th", null, "Event"), h("th", null, "When"), h("th", null, "Peak")),
-      ev.events.map((e) => h("tr", null, h("td", null, kindText[e.kind]), h("td", null, fmtTime(e.startTs)), h("td", null, e.peak.toFixed(2) + " " + unit[e.kind])))) : h("p", { class: "empty" }, "No reading went past this parcel's limits."),
+      ev.events.map((e) => h("tr", null, h("td", null, kindText[e.kind] + (e.withSound ? " + sound" : "")), h("td", null, fmtTime(e.startTs)), h("td", null, e.peak.toFixed(2) + " " + unit[e.kind])))) : h("p", { class: "empty" }, "No reading went past this parcel's limits."),
+    ev.peakSound !== null ? h("p", { class: "note" }, "Loudest sound: " + ev.peakSound + " of 100. The tag measures loudness only and records no audio.") : null,
     ev.gaps.length ? h("p", { class: "note" }, ev.gaps.length + " gap(s) with no readings, " + ev.gapSeconds + " s in total.") : null,
     ev.afterDelivery.readingCount ? h("p", { class: "note" }, ev.afterDelivery.readingCount + " reading(s) arrived after delivery, with " + ev.afterDelivery.events.length + " event(s). They are kept apart from the delivery evidence.") : null);
 }

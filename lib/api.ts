@@ -229,7 +229,6 @@ export async function handleApi(req: Request, given?: ApiContext): Promise<Respo
           const ev = await evidenceFor(ctx, parcel);
           return ev ? json(200, { parcel: parcelView(parcel), evidence: ev }) : fail(409, "not_dispatched", "This parcel hasn't been dispatched, so there is no evidence yet.");
         }
-        if (c === "claims" && method === "POST") return await fileClaim(req, ctx, auth, parcel, nowS);
       }
     }
 
@@ -461,20 +460,6 @@ async function parcelReadings(ctx: ApiContext, p: Parcel, nowS: number): Promise
 }
 
 // ---------- claims ----------
-
-async function fileClaim(req: Request, ctx: ApiContext, auth: Auth, parcel: Parcel, nowS: number): Promise<Response> {
-  const r = await readBody(req);
-  if ("res" in r) return r.res;
-  const b = r.body as Body;
-  if (parcel.status !== "delivered") return fail(409, "not_delivered", "A claim can be filed once the parcel is marked delivered.");
-  const claimant = str(b.claimant, 1, 100);
-  const statement = str(b.statement, 1, 2000);
-  if (!claimant) return fail(400, "bad_claimant", "Enter who is making the claim, up to 100 characters.");
-  if (!statement) return fail(400, "bad_statement", "Describe the claim in up to 2000 characters.");
-  const claim: Claim = { id: newId("clm"), orgId: auth.org.id, parcelId: parcel.id, claimant, statement, filedAt: nowS, status: "open" };
-  await ctx.store.putClaim(claim);
-  return json(201, { claim });
-}
 
 async function listClaims(ctx: ApiContext, auth: Auth): Promise<Response> {
   const [claims, parcels] = await Promise.all([ctx.store.listClaims(auth.org.id), ctx.store.listParcels(auth.org.id)]);
